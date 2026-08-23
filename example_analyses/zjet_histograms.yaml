@@ -1,0 +1,59 @@
+Z_mass:
+  title: "Z mass;m_{#mu#mu} [GeV];Events"
+  bins: [80, 80, 102]
+  variable: "Z_mass"
+
+Z_pt:
+  title: "Z p_{T};p_{T}^{Z} [GeV];Events"
+  bins: [100, 0, 500]
+  variable: "Z_pt"
+
+Probe_pt:
+  title: "Leading recoil jet p_{T};p_{T}^{jet} [GeV];Events"
+  bins: [100, 0, 500]
+  variable: "Probe_pt"
+
+Probe_eta:
+  title: "Leading recoil jet #eta;#eta^{jet};Events"
+  bins: [100, -5, 5]
+  variable: "Probe_eta"
+
+DB:
+  title: "Direct Balance;p_{T}^{jet}/p_{T}^{Z};Events"
+  bins: [100, 0.5, 2.0]
+  variable: "DB"
+
+MPF:
+  title: "MPF;MPF;Events"
+  bins: [160, -1, 3]
+  variable: "MPF"
+
+DB_vs_Zpt:
+  type: "TProfile"
+  title: "Direct Balance;p_{T}^{Z} [GeV];DB"
+  bins: [100, 0, 500]
+  variable_x: "Z_pt"
+  variable_y: "DB"
+
+MPF_vs_Zpt:
+  type: "TProfile"
+  title: "MPF;p_{T}^{Z} [GeV];MPF"
+  bins: [100, 0, 500]
+  variable_x: "Z_pt"
+  variable_y: "MPF"
+
+DB_2D:
+  type: "TProfile2D"
+  title: "Direct Balance;#eta^{jet};p_{T}^{Z} [GeV];DB"
+  bins: [50, -5, 5, 100, 0, 500]
+  variable_x: "Probe_eta"
+  variable_y: "Z_pt"
+  variable_z: "DB"
+
+MPF_2D:
+  type: "TProfile2D"
+  title: "MPF;#eta^{jet};p_{T}^{Z} [GeV];MPF"
+  bins: [50, -5, 5, 100, 0, 500]
+  variable_x: "Probe_eta"
+  variable_y: "Z_pt"
+  variable_z: "MPF"
