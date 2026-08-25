@@ -67,4 +67,200 @@ python3 run_analysis.py \
   --add-no-selection
 ```
 
+# Plotting toolkit
 
+Reusable ROOT + mplhep plotting helpers.
+
+## Supported ROOT objects
+
+- `TH1*`
+- `TProfile`
+- `TH2*`
+- `TProfile2D`
+- `TGraph`
+- `TGraphErrors`
+- `TGraphAsymmErrors`
+- `TEfficiency`
+
+ROOT objects are read with PyROOT and converted into small numpy dataclasses.
+Plotting is then done with matplotlib/mplhep.
+
+## Core API
+
+```python
+from plotting import (
+    read_root_object,
+    plot_hist1d_data_mc,
+    plot_hist1d_stack,
+    plot_graph_data_mc,
+    plot_hist2d_data_mc,
+)
+```
+
+### TH1 / TProfile Data vs MC
+
+```python
+data = read_root_object("data.root", "zjet/Jet_eta_parallel")
+mc = read_root_object("mc.root", "zjet/Jet_eta_parallel")
+
+plot_hist1d_data_mc(
+    data,
+    mc,
+    "jet_eta.pdf",
+    normalize_mc_to_data=True,
+)
+```
+
+A Data/MC ratio panel is produced automatically.
+
+### Generic stack
+
+```python
+from collections import OrderedDict
+
+components = OrderedDict([
+    ("processA", read_root_object("a.root", "region/h")),
+    ("processB", read_root_object("b.root", "region/h")),
+])
+
+data = read_root_object("data.root", "region/h")
+
+plot_hist1d_stack(
+    components,
+    "stack.pdf",
+    data=data,
+    scales={
+        "processA": 1.2,
+        "processB": 0.8,
+    },
+    normalize_stack_to_data=False,
+)
+```
+
+The `scales` mapping provides generic scalar weighting.
+
+### TGraph / TEfficiency
+
+`TEfficiency` is converted internally through its asymmetric-error graph.
+
+```python
+data = read_root_object("data.root", "efficiency")
+mc = read_root_object("mc.root", "efficiency")
+
+plot_graph_data_mc(
+    data,
+    mc,
+    "efficiency.pdf",
+)
+```
+
+### TH2
+
+```python
+data = read_root_object("data.root", "region/h2")
+mc = read_root_object("mc.root", "region/h2")
+
+plot_hist2d_data_mc(
+    data,
+    mc,
+    "h2.pdf",
+)
+```
+
+This creates Data, MC, and Data/MC panels.
+
+## Generic CLI
+
+```bash
+python3 plot_root_objects.py compare \
+  --data data.root \
+  --mc mc.root \
+  --object zjet/Jet_eta_parallel \
+  --output jet_eta.pdf \
+  --normalize-mc-to-data
+```
+
+For TH2:
+
+```bash
+python3 plot_root_objects.py compare2d \
+  --data data.root \
+  --mc mc.root \
+  --object region/h2 \
+  --output h2.pdf
+```
+
+## Requirements
+
+PyROOT should come from CMSSW/ROOT.
+
+Install the plotting dependencies if needed:
+
+```bash
+python3 -m pip install --user mplhep matplotlib numpy pyyaml
+```
+
+
+## Efficient repeated ROOT access
+
+For many objects from the same file, do not call `read_root_object()` in a
+large loop. Keep the file open:
+
+```python
+from plotting import RootFileReader
+
+with RootFileReader("data.root") as reader:
+    h1 = reader.get("region/h1")
+    h2 = reader.get("region/h2")
+    graph = reader.get("region/graph")
+```
+
+`RootFileReader` caches converted objects, and the ROOT file is opened only
+once. This is strongly recommended for EOS/XRootD files.
+
+
+## Permanent lxplus matplotlib cache
+
+Importing `SkimRDFAnalysisBase/plotting` now automatically configures
+matplotlib to use local temporary cache/config directories:
+
+```text
+/tmp/$USER/skimrdf_matplotlib/
+```
+
+This prevents the very slow first matplotlib figure seen when `~/.cache` or
+`~/.config` live on EOS/AFS.
+
+The behavior can be disabled with:
+
+```bash
+export SKIMRDF_MPL_LOCAL_CACHE=0
+```
+
+or redirected explicitly with:
+
+```bash
+export SKIMRDF_MPLCONFIGDIR=/some/local/path
+```
+
+## ROOT-only backend
+
+The package now also contains:
+
+```text
+plotting_root/
+```
+
+This is an independent pure-PyROOT plotting backend. It imports no matplotlib
+or mplhep and supports ROOT-native histograms, profiles, graphs, efficiencies,
+stacks, ratio pads and 2D comparisons.
+
+A generic CLI is available as:
+
+```bash
+python3 plot_root_objects_root.py compare \
+  --data data.root \
+  --mc mc.root \
+  --object zjet/Jet_eta_parallel \
+  --output jet_eta.pdf
+```
