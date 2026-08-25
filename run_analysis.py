@@ -6,7 +6,6 @@ import importlib.util
 import os
 import re
 import time
-from pathlib import Path
 
 import numpy as np
 import ROOT
@@ -14,67 +13,279 @@ import yaml
 from tqdm import tqdm
 
 
-def load_python_module(path, module_name="rdf_definition"):
-    """Import a python file by path and return the loaded module."""
-    path = os.path.abspath(path)
-    if not os.path.isfile(path):
-        raise FileNotFoundError(f"Analysis definition not found: {path}")
+# ============================================================
+# Python analysis-definition loading
+# ============================================================
 
-    spec = importlib.util.spec_from_file_location(module_name, path)
+def resolve_file(path, description):
+    """
+    Resolve a configuration file.
+
+    First try the path exactly as given (relative to the current working
+    directory). If it does not exist, also try relative to this script.
+    """
+    path = os.path.expanduser(path)
+
+    if os.path.isfile(path):
+        return os.path.abspath(path)
+
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    script_relative = os.path.join(script_dir, path)
+
+    if os.path.isfile(script_relative):
+        return os.path.abspath(script_relative)
+
+    raise FileNotFoundError(
+        f"{description} not found: {path}\n"
+        f"Also tried: {script_relative}"
+    )
+
+
+def load_analysis_definition(path):
+    """Import an rdf_definition.py-style analysis module from a file path."""
+    path = resolve_file(path, "Analysis definition")
+
+    spec = importlib.util.spec_from_file_location(
+        "rdf_analysis_definition",
+        path
+    )
+
     if spec is None or spec.loader is None:
-        raise RuntimeError(f"Could not import analysis definition: {path}")
+        raise RuntimeError(
+            f"Could not import analysis definition: {path}"
+        )
 
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+
+    required = ("define_columns", "get_regions")
+
+    for function_name in required:
+        function = getattr(module, function_name, None)
+
+        if not callable(function):
+            raise RuntimeError(
+                f"Analysis definition '{path}' must define "
+                f"a callable {function_name}()."
+            )
+
     return module
 
 
-def validate_analysis_module(module):
-    required = ["define_columns", "get_regions"]
-    missing = [name for name in required if not callable(getattr(module, name, None))]
-    if missing:
-        raise RuntimeError(
-            "rdf definition is missing required callable(s): "
-            + ", ".join(missing)
+# ============================================================
+# Histogram helpers
+# ============================================================
+
+def make_edges(spec):
+    """
+    Convert a YAML edge specification into a numpy array.
+
+    Supported forms:
+
+      edges: [20, 30, 50, 100]
+
+    or
+
+      edges: ["bins", 50, 0, 500]
+
+    In the second form, 50 means 50 bins, therefore 51 edges are made.
+    """
+    if len(spec) > 0 and spec[0] == "bins":
+        nbins = int(spec[1])
+        xmin = float(spec[2])
+        xmax = float(spec[3])
+
+        return np.linspace(
+            xmin,
+            xmax,
+            nbins + 1,
+            dtype=np.float64
         )
+
+    return np.asarray(
+        spec,
+        dtype=np.float64
+    )
 
 
 def book_histograms(dataframe, config):
-    """Book all histograms from a YAML dictionary on an RDataFrame node."""
+    """
+    Book all histograms defined in the YAML configuration.
+
+    Optional YAML field:
+
+      weight: "weight_column"
+
+    is supported for TH1D, TProfile, TH2D, TProfile2D and TH3D.
+    """
     pointers = []
 
     for hist_name, hist_info in config.items():
         title = hist_info["title"]
         hist_type = hist_info.get("type", "TH1D")
+        weight = hist_info.get("weight")
 
+        # ----------------------------------------------------
+        # TH1D
+        # ----------------------------------------------------
         if hist_type == "TH1D":
             variable = hist_info["variable"]
+
             if "edges" in hist_info:
                 edges = make_edges(hist_info["edges"])
-                model = (hist_name, title, len(edges) - 1, edges)
+
+                model = (
+                    hist_name,
+                    title,
+                    len(edges) - 1,
+                    edges
+                )
+
             else:
                 bins = hist_info["bins"]
-                model = (hist_name, title, bins[0], bins[1], bins[2])
-            pointers.append(dataframe.Histo1D(model, variable))
 
+                model = (
+                    hist_name,
+                    title,
+                    bins[0],
+                    bins[1],
+                    bins[2]
+                )
+
+            if weight:
+                pointer = dataframe.Histo1D(
+                    model,
+                    variable,
+                    weight
+                )
+            else:
+                pointer = dataframe.Histo1D(
+                    model,
+                    variable
+                )
+
+            pointers.append(pointer)
+
+        # ----------------------------------------------------
+        # TProfile / Profile1D
+        # ----------------------------------------------------
         elif hist_type in ("TProfile", "Profile1D"):
             var_x = hist_info["variable_x"]
             var_y = hist_info["variable_y"]
+
             if "edges" in hist_info:
                 edges = make_edges(hist_info["edges"])
-                model = (hist_name, title, len(edges) - 1, edges)
+
+                model = (
+                    hist_name,
+                    title,
+                    len(edges) - 1,
+                    edges
+                )
+
             else:
                 bins = hist_info["bins"]
-                model = (hist_name, title, bins[0], bins[1], bins[2])
-            pointers.append(dataframe.Profile1D(model, var_x, var_y))
 
+                model = (
+                    hist_name,
+                    title,
+                    bins[0],
+                    bins[1],
+                    bins[2]
+                )
+
+            if weight:
+                pointer = dataframe.Profile1D(
+                    model,
+                    var_x,
+                    var_y,
+                    weight
+                )
+            else:
+                pointer = dataframe.Profile1D(
+                    model,
+                    var_x,
+                    var_y
+                )
+
+            pointers.append(pointer)
+
+        # ----------------------------------------------------
+        # TH2D
+        # ----------------------------------------------------
         elif hist_type == "TH2D":
             var_x = hist_info["variable_x"]
             var_y = hist_info["variable_y"]
 
-            if "edges_x" in hist_info and "edges_y" in hist_info:
+            if (
+                "edges_x" in hist_info
+                and "edges_y" in hist_info
+            ):
                 edges_x = make_edges(hist_info["edges_x"])
                 edges_y = make_edges(hist_info["edges_y"])
+
+                model = (
+                    hist_name,
+                    title,
+                    len(edges_x) - 1,
+                    edges_x,
+                    len(edges_y) - 1,
+                    edges_y
+                )
+
+            else:
+                bins = hist_info["bins"]
+
+                model = (
+                    hist_name,
+                    title,
+                    bins[0],
+                    bins[1],
+                    bins[2],
+                    bins[3],
+                    bins[4],
+                    bins[5]
+                )
+
+            if weight:
+                pointer = dataframe.Histo2D(
+                    model,
+                    var_x,
+                    var_y,
+                    weight
+                )
+            else:
+                pointer = dataframe.Histo2D(
+                    model,
+                    var_x,
+                    var_y
+                )
+
+            pointers.append(pointer)
+
+        # ----------------------------------------------------
+        # TH3D
+        # ----------------------------------------------------
+        elif hist_type == "TH3D":
+            var_x = hist_info["variable_x"]
+            var_y = hist_info["variable_y"]
+            var_z = hist_info["variable_z"]
+
+            if (
+                "edges_x" in hist_info
+                and "edges_y" in hist_info
+                and "edges_z" in hist_info
+            ):
+                edges_x = make_edges(
+                    hist_info["edges_x"]
+                )
+                edges_y = make_edges(
+                    hist_info["edges_y"]
+                )
+                edges_z = make_edges(
+                    hist_info["edges_z"]
+                )
+
                 model = (
                     hist_name,
                     title,
@@ -82,90 +293,192 @@ def book_histograms(dataframe, config):
                     edges_x,
                     len(edges_y) - 1,
                     edges_y,
+                    len(edges_z) - 1,
+                    edges_z,
                 )
+
             else:
                 bins = hist_info["bins"]
+
                 model = (
                     hist_name,
                     title,
-                    bins[0], bins[1], bins[2],
-                    bins[3], bins[4], bins[5],
+                    bins[0],
+                    bins[1],
+                    bins[2],
+                    bins[3],
+                    bins[4],
+                    bins[5],
+                    bins[6],
+                    bins[7],
+                    bins[8],
                 )
-            pointers.append(dataframe.Histo2D(model, var_x, var_y))
 
+            if weight:
+                pointer = dataframe.Histo3D(
+                    model,
+                    var_x,
+                    var_y,
+                    var_z,
+                    weight,
+                )
+            else:
+                pointer = dataframe.Histo3D(
+                    model,
+                    var_x,
+                    var_y,
+                    var_z,
+                )
+
+            pointers.append(
+                pointer
+            )
+
+        # ----------------------------------------------------
+        # TProfile2D / Profile2D
+        # ----------------------------------------------------
         elif hist_type in ("TProfile2D", "Profile2D"):
             var_x = hist_info["variable_x"]
             var_y = hist_info["variable_y"]
             var_z = hist_info["variable_z"]
 
-            if "edges_x" in hist_info and "edges_y" in hist_info:
+            if (
+                "edges_x" in hist_info
+                and "edges_y" in hist_info
+            ):
                 edges_x = make_edges(hist_info["edges_x"])
                 edges_y = make_edges(hist_info["edges_y"])
+
                 model = (
                     hist_name,
                     title,
                     len(edges_x) - 1,
                     edges_x,
                     len(edges_y) - 1,
-                    edges_y,
+                    edges_y
                 )
+
             else:
                 bins = hist_info["bins"]
+
                 model = (
                     hist_name,
                     title,
-                    bins[0], bins[1], bins[2],
-                    bins[3], bins[4], bins[5],
+                    bins[0],
+                    bins[1],
+                    bins[2],
+                    bins[3],
+                    bins[4],
+                    bins[5]
                 )
-            pointers.append(dataframe.Profile2D(model, var_x, var_y, var_z))
+
+            if weight:
+                pointer = dataframe.Profile2D(
+                    model,
+                    var_x,
+                    var_y,
+                    var_z,
+                    weight
+                )
+            else:
+                pointer = dataframe.Profile2D(
+                    model,
+                    var_x,
+                    var_y,
+                    var_z
+                )
+
+            pointers.append(pointer)
 
         else:
-            print(f"WARNING: unknown histogram type '{hist_type}', skipping {hist_name}")
+            print(
+                f"WARNING: Unknown histogram type "
+                f"'{hist_type}' for '{hist_name}'. Skipping."
+            )
 
     return pointers
 
 
-def make_edges(spec):
-    """
-    YAML syntax:
-      edges: [20, 30, 50, 100]
-    or
-      edges: ["bins", 50, 0, 500]
-
-    For the second form the integer is the number of bins, so n+1 edges are made.
-    """
-    if spec[0] == "bins":
-        nbins, xmin, xmax = int(spec[1]), float(spec[2]), float(spec[3])
-        return np.linspace(xmin, xmax, nbins + 1, dtype=np.float64)
-    return np.asarray(spec, dtype=np.float64)
-
+# ============================================================
+# Input sample helpers
+# ============================================================
 
 def compile_patterns(raw):
-    return [re.compile(p.strip()) for p in raw.split(",") if p.strip()]
+    """Compile comma-separated regular expressions."""
+    return [
+        re.compile(pattern.strip())
+        for pattern in raw.split(",")
+        if pattern.strip()
+    ]
 
 
-def should_process(subdir, include_patterns, skip_patterns):
-    if include_patterns and not any(p.search(subdir) for p in include_patterns):
+def should_process(
+    subdir,
+    include_patterns,
+    skip_patterns
+):
+    if (
+        include_patterns
+        and not any(
+            pattern.search(subdir)
+            for pattern in include_patterns
+        )
+    ):
         return False
-    if skip_patterns and any(p.search(subdir) for p in skip_patterns):
+
+    if (
+        skip_patterns
+        and any(
+            pattern.search(subdir)
+            for pattern in skip_patterns
+        )
+    ):
         return False
+
     return True
 
 
 def get_subdirs_at_depth(base_dir, target_depth):
+    """
+    Return relative subdirectory paths exactly target_depth levels
+    below base_dir.
+
+    depth = 0:
+        process base_dir itself
+
+    depth = 1:
+        process direct children
+
+    depth = 2:
+        process grandchildren
+    """
     if target_depth == 0:
         return [""]
 
     base_dir = os.path.abspath(base_dir)
-    subdirs = []
     base_depth = base_dir.rstrip(os.sep).count(os.sep)
 
+    subdirs = []
+
     for root, dirs, _ in os.walk(base_dir):
-        current_depth = root.count(os.sep) - base_depth
+        current_depth = (
+            root.count(os.sep)
+            - base_depth
+        )
 
         if current_depth + 1 == target_depth:
             for directory in dirs:
-                subdirs.append(os.path.relpath(os.path.join(root, directory), base_dir))
+                full_path = os.path.join(
+                    root,
+                    directory
+                )
+
+                subdirs.append(
+                    os.path.relpath(
+                        full_path,
+                        base_dir
+                    )
+                )
 
         if current_depth >= target_depth:
             dirs[:] = []
@@ -174,144 +487,442 @@ def get_subdirs_at_depth(base_dir, target_depth):
 
 
 def find_input_files(directory, pattern):
-    files = []
+    """Find ROOT files recursively below directory matching pattern."""
+    input_files = []
+
     for root, _, filenames in os.walk(directory):
         for filename in filenames:
             if fnmatch.fnmatch(filename, pattern):
-                files.append(os.path.join(root, filename))
-    return sorted(files)
+                input_files.append(
+                    os.path.join(
+                        root,
+                        filename
+                    )
+                )
+
+    return sorted(input_files)
 
 
-def define_regions(regions):
+# ============================================================
+# Region validation
+# ============================================================
+
+def validate_regions(regions):
     """
-    Accepted forms:
+    Enforce one simple analysis interface:
 
       {
-        "baseline": ["cut1", "cut2"],
-        "signal": ["cut1", "cut3"]
+          "region_name": {
+              "cuts": [
+                  "selection 1",
+                  "selection 2",
+              ]
+          }
       }
 
-    or
-
-      {
-        "baseline": {"cuts": [...]},
-        "signal": {"cuts": [...]}
-      }
+    No normalization/conversion layer is used.
     """
-    defined_regions = {}
+    if not isinstance(regions, dict):
+        raise TypeError(
+            "get_regions() must return a dictionary."
+        )
 
-    for name, cfg in regions.items():
-        if isinstance(cfg, (list, tuple)):
-            defined_regions[name] = {"cuts": list(cfg)}
-        elif isinstance(cfg, dict):
-            defined_regions[name] = dict(cfg)
-            defined_regions[name].setdefault("cuts", [])
-        else:
-            raise TypeError(f"Region '{name}' must be a list or dictionary")
+    for region_name, region_info in regions.items():
+        if not isinstance(region_info, dict):
+            raise TypeError(
+                f"Region '{region_name}' must be a dictionary."
+            )
 
-    return defined_regions
+        cuts = region_info.get("cuts", [])
+
+        if not isinstance(cuts, (list, tuple)):
+            raise TypeError(
+                f"Region '{region_name}' field 'cuts' "
+                f"must be a list or tuple."
+            )
+
+        for selection in cuts:
+            if not isinstance(selection, str):
+                raise TypeError(
+                    f"Region '{region_name}' contains a "
+                    f"non-string selection: {selection!r}"
+                )
+
+
+# ============================================================
+# CLI
+# ============================================================
+
+def parse_bool(value):
+    """Accept true/false for backwards-compatible CLI flags."""
+    if isinstance(value, bool):
+        return value
+
+    value = value.lower()
+
+    if value in ("true", "1", "yes", "y"):
+        return True
+
+    if value in ("false", "0", "no", "n"):
+        return False
+
+    raise argparse.ArgumentTypeError(
+        f"Expected true/false, got '{value}'."
+    )
 
 
 def build_parser():
     parser = argparse.ArgumentParser(
-        description="Generic ROOT RDataFrame analysis runner"
+        description=(
+            "Generic ROOT RDataFrame analysis runner. "
+            "Physics definitions and regions are supplied by "
+            "--rdf-definition."
+        )
     )
 
-    parser.add_argument("--input-files-dir", required=True)
-    parser.add_argument("--file-pattern", default="*.root")
-    parser.add_argument("--output-dir", required=True)
-    parser.add_argument("--output-name", default="")
-    parser.add_argument("--tree-name", default="Events")
+    # Input
+    parser.add_argument(
+        "--input-files-dir",
+        required=True,
+        help="Directory containing input ROOT files/subdirectories"
+    )
 
-    parser.add_argument("--histograms-defs", required=True)
+    parser.add_argument(
+        "--file-pattern",
+        default="*Skim*.root",
+        help="Input filename pattern, e.g. '*Skim*.root'"
+    )
+
+    parser.add_argument(
+        "--tree-name",
+        default="Events",
+        help="Input TTree name"
+    )
+
+    parser.add_argument(
+        "--input-files-depth",
+        type=int,
+        default=0,
+        help=(
+            "Subdirectory depth to treat as separate samples. "
+            "0 means process --input-files-dir itself."
+        )
+    )
+
+    # Analysis
     parser.add_argument(
         "--rdf-definition",
         required=True,
-        help="Python analysis module defining columns and regions",
+        help=(
+            "Python file providing setup(), define_columns() "
+            "and get_regions()"
+        )
     )
 
-    parser.add_argument("--skip", default="")
-    parser.add_argument("--include-only", default="")
-    parser.add_argument("--skip-first-nevents", type=int, default=0)
-    parser.add_argument("--max-events", type=int, default=-1)
-    parser.add_argument("--input-files-depth", type=int, default=0)
-    parser.add_argument("--add-no-selection", action="store_true")
+    parser.add_argument(
+        "--histograms-defs",
+        required=True,
+        help="YAML file defining histograms"
+    )
 
+    parser.add_argument(
+        "--analysis-config",
+        default="",
+        help=(
+            "Optional YAML configuration passed to "
+            "rdf_definition.py"
+        )
+    )
+
+    # Output
+    parser.add_argument(
+        "--output-dir",
+        required=True,
+        help="Directory for output ROOT files"
+    )
+
+    parser.add_argument(
+        "--output-name",
+        default="",
+        help=(
+            "Explicit output ROOT filename. Best used when "
+            "processing one sample."
+        )
+    )
+
+    # Sample selection
+    parser.add_argument(
+        "--skip",
+        default="",
+        help="Comma-separated regex patterns for samples to skip"
+    )
+
+    parser.add_argument(
+        "--include-only",
+        default="",
+        help=(
+            "Comma-separated regex patterns; process only "
+            "matching samples"
+        )
+    )
+
+    # Event range
+    parser.add_argument(
+        "--skip-first-nevents",
+        type=int,
+        default=0,
+        help="Skip the first N events"
+    )
+
+    parser.add_argument(
+        "--max-events",
+        type=int,
+        default=-1,
+        help="Maximum number of events to process; -1 means all"
+    )
+
+    # Histograms
+    parser.add_argument(
+        "--add-no-selection",
+        nargs="?",
+        const=True,
+        default=False,
+        type=parse_bool,
+        help=(
+            "Also book histograms before any region cuts. "
+            "Supports either '--add-no-selection' or "
+            "'--add-no-selection True'."
+        )
+    )
+
+    # ROOT
     parser.add_argument(
         "--threads",
         type=int,
         default=0,
-        help="ROOT implicit-MT threads. 0 lets ROOT choose.",
-    )
-
-    # Generic free-form analysis configuration.
-    parser.add_argument(
-        "--analysis-config",
-        default="",
-        help="Optional YAML passed to rdf_definition.py",
+        help=(
+            "Number of ROOT implicit-MT threads. "
+            "0 lets ROOT choose."
+        )
     )
 
     return parser
 
 
+# ============================================================
+# Output naming
+# ============================================================
+
+def make_output_path(
+    args,
+    relative_subdir,
+    sample_name
+):
+    if args.output_name:
+        return os.path.join(
+            args.output_dir,
+            args.output_name
+        )
+
+    if args.input_files_depth == 0:
+        return os.path.join(
+            args.output_dir,
+            f"{sample_name}.root"
+        )
+
+    # Preserve the original convention:
+    # use the first directory level as output sample name.
+    first_level = relative_subdir.split(os.sep)[0]
+
+    return os.path.join(
+        args.output_dir,
+        f"{first_level}.root"
+    )
+
+
+# ============================================================
+# Main
+# ============================================================
+
 def main():
-    t0 = time.time()
+    start_time = time.time()
+
     parser = build_parser()
     args = parser.parse_args()
 
+    # --------------------------------------------------------
+    # ROOT multithreading
+    # --------------------------------------------------------
     if args.threads > 0:
-        ROOT.ROOT.EnableImplicitMT(args.threads)
+        ROOT.ROOT.EnableImplicitMT(
+            args.threads
+        )
     else:
         ROOT.ROOT.EnableImplicitMT()
 
-    print("Threads enabled:", ROOT.ROOT.GetThreadPoolSize())
+    print(
+        "Threads enabled:",
+        ROOT.ROOT.GetThreadPoolSize()
+    )
 
-    analysis = load_python_module(args.rdf_definition)
-    validate_analysis_module(analysis)
+    # --------------------------------------------------------
+    # Load analysis definition
+    # --------------------------------------------------------
+    analysis = load_analysis_definition(
+        args.rdf_definition
+    )
 
-    with open(args.histograms_defs) as handle:
-        hist_config = yaml.safe_load(handle) or {}
+    # --------------------------------------------------------
+    # Load histogram YAML
+    # --------------------------------------------------------
+    histograms_path = resolve_file(
+        args.histograms_defs,
+        "Histogram definition"
+    )
 
-    analysis_config = {}
-    if args.analysis_config:
-        with open(args.analysis_config) as handle:
-            analysis_config = yaml.safe_load(handle) or {}
-
-    # Optional one-time hook for C++ libraries, correctionlib, declarations, etc.
-    setup = getattr(analysis, "setup", None)
-    if callable(setup):
-        setup(args=args, config=analysis_config)
-
-    include_patterns = compile_patterns(args.include_only)
-    skip_patterns = compile_patterns(args.skip)
-
-    subdirs = [
-        d for d in get_subdirs_at_depth(args.input_files_dir, args.input_files_depth)
-        if should_process(d, include_patterns, skip_patterns)
-    ]
-
-    print("Samples:", subdirs)
-
-    os.makedirs(args.output_dir, exist_ok=True)
-
-    for relative_subdir in tqdm(subdirs, desc="Processing samples"):
-        full_subdir_path = os.path.join(args.input_files_dir, relative_subdir)
-
-        sample_name = (
-            os.path.basename(os.path.abspath(args.input_files_dir))
-            if relative_subdir == ""
-            else relative_subdir
+    with open(
+        histograms_path,
+        "r",
+        encoding="utf-8"
+    ) as handle:
+        hist_config = (
+            yaml.safe_load(handle)
+            or {}
         )
 
-        print("\n================================================================")
-        print(f"Processing sample: {sample_name}")
-        print(f"Input directory: {full_subdir_path}")
+    print(
+        f"Loaded histogram definitions: "
+        f"{histograms_path}"
+    )
 
-        input_files = find_input_files(full_subdir_path, args.file_pattern)
+    # --------------------------------------------------------
+    # Optional analysis YAML
+    # --------------------------------------------------------
+    analysis_config = {}
+
+    if args.analysis_config:
+        analysis_config_path = resolve_file(
+            args.analysis_config,
+            "Analysis configuration"
+        )
+
+        with open(
+            analysis_config_path,
+            "r",
+            encoding="utf-8"
+        ) as handle:
+            analysis_config = (
+                yaml.safe_load(handle)
+                or {}
+            )
+
+        print(
+            f"Loaded analysis configuration: "
+            f"{analysis_config_path}"
+        )
+
+    # --------------------------------------------------------
+    # Optional one-time analysis setup
+    #
+    # Use this in rdf_definition.py to:
+    #   * ROOT.gInterpreter.Declare(...)
+    #   * ROOT.gSystem.Load(...)
+    #   * initialize correctionlib/JEC helpers
+    # --------------------------------------------------------
+    setup = getattr(
+        analysis,
+        "setup",
+        None
+    )
+
+    if callable(setup):
+        setup(
+            args=args,
+            config=analysis_config
+        )
+
+    # --------------------------------------------------------
+    # Find samples
+    # --------------------------------------------------------
+    include_patterns = compile_patterns(
+        args.include_only
+    )
+
+    skip_patterns = compile_patterns(
+        args.skip
+    )
+
+    relative_subdirs = [
+        subdir
+        for subdir in get_subdirs_at_depth(
+            args.input_files_dir,
+            args.input_files_depth
+        )
+        if should_process(
+            subdir,
+            include_patterns,
+            skip_patterns
+        )
+    ]
+
+    print(
+        "Samples to process:",
+        relative_subdirs
+    )
+
+    os.makedirs(
+        args.output_dir,
+        exist_ok=True
+    )
+
+    # --------------------------------------------------------
+    # Sample loop
+    # --------------------------------------------------------
+    for relative_subdir in tqdm(
+        relative_subdirs,
+        desc="Processing samples"
+    ):
+        full_subdir_path = os.path.join(
+            args.input_files_dir,
+            relative_subdir
+        )
+
+        if relative_subdir == "":
+            sample_name = os.path.basename(
+                os.path.abspath(
+                    args.input_files_dir
+                )
+            )
+        else:
+            sample_name = relative_subdir
+
+        print(
+            "\n"
+            "============================================================"
+        )
+        print(
+            f"Processing sample: {sample_name}"
+        )
+        print(
+            f"Input directory: {full_subdir_path}"
+        )
+
+        input_files = find_input_files(
+            full_subdir_path,
+            args.file_pattern
+        )
 
         if not input_files:
-            print(f"Skipping {sample_name}: no matching ROOT files")
+            print(
+                f"Skipping {sample_name}: "
+                f"no files matching "
+                f"'{args.file_pattern}'."
+            )
             continue
+
+        print(
+            f"Found {len(input_files)} input file(s)."
+        )
 
         sample = {
             "name": sample_name,
@@ -320,80 +931,187 @@ def main():
             "input_files": input_files,
         }
 
-        df = ROOT.RDataFrame(args.tree_name, input_files)
+        # ----------------------------------------------------
+        # Base dataframe
+        # ----------------------------------------------------
+        df = ROOT.RDataFrame(
+            args.tree_name,
+            input_files
+        )
 
+        # Correct Range semantics:
+        # Range(begin, end), with end = begin + number to process.
         if args.max_events > 0:
             begin = args.skip_first_nevents
             end = begin + args.max_events
-            df = df.Range(begin, end)
-        elif args.skip_first_nevents > 0:
-            df = df.Range(args.skip_first_nevents)
 
-        # All physics-specific Define/Redefine calls live here.
+            df = df.Range(
+                begin,
+                end
+            )
+
+        elif args.skip_first_nevents > 0:
+            df = df.Range(
+                args.skip_first_nevents
+            )
+
+        # ----------------------------------------------------
+        # Analysis-specific Define/Redefine calls
+        # ----------------------------------------------------
         df = analysis.define_columns(
             df,
             sample=sample,
             args=args,
-            config=analysis_config,
+            config=analysis_config
         )
 
-        regions = define_regions(
-            analysis.get_regions(
-                sample=sample,
-                args=args,
-                config=analysis_config,
+        # ----------------------------------------------------
+        # Analysis-specific regions
+        # ----------------------------------------------------
+        regions = analysis.get_regions(
+            sample=sample,
+            args=args,
+            config=analysis_config
+        )
+
+        validate_regions(regions)
+
+        # ----------------------------------------------------
+        # Output
+        # ----------------------------------------------------
+        output_path = make_output_path(
+            args,
+            relative_subdir,
+            sample_name
+        )
+
+        output = ROOT.TFile(
+            output_path,
+            "RECREATE"
+        )
+
+        if not output or output.IsZombie():
+            raise RuntimeError(
+                f"Could not create output ROOT file: "
+                f"{output_path}"
             )
-        )
 
-        if args.output_name:
-            output_path = os.path.join(args.output_dir, args.output_name)
-        elif args.input_files_depth == 0:
-            output_path = os.path.join(args.output_dir, f"{sample_name}.root")
-        else:
-            first_level = relative_subdir.split(os.sep)[0]
-            output_path = os.path.join(args.output_dir, f"{first_level}.root")
-
-        output = ROOT.TFile(output_path, "RECREATE")
-
-        all_hist_pointers = []
+        # Keep all lazy actions alive until execution.
+        histogram_actions = []
         reports = {}
 
+        # ----------------------------------------------------
+        # Optional unfiltered histograms
+        # ----------------------------------------------------
         if args.add_no_selection:
-            print("\nBooking histograms without region selection")
-            baseline = book_histograms(df, hist_config)
-            all_hist_pointers.extend([("", ptr) for ptr in baseline])
-
-        for region_name, region_info in regions.items():
-            print(f"\nBooking region: {region_name}")
-            region_df = df
-
-            for idx, selection in enumerate(region_info.get("cuts", [])):
-                cut_name = f"{region_name}:{idx}:{selection}"
-                region_df = region_df.Filter(selection, cut_name)
-
-            reports[region_name] = region_df.Report()
-
-            output.mkdir(region_name)
-            region_pointers = book_histograms(region_df, hist_config)
-            all_hist_pointers.extend(
-                [(region_name, ptr) for ptr in region_pointers]
+            print(
+                "\nBooking histograms without "
+                "region selection"
             )
 
-        print("\nExecuting RDataFrame graph...")
+            pointers = book_histograms(
+                df,
+                hist_config
+            )
 
-        # Lazy actions share the same graph. First GetValue/Write triggers event loop.
-        for target_dir, hist in all_hist_pointers:
-            output.cd(target_dir) if target_dir else output.cd()
-            hist.Write()
+            histogram_actions.extend(
+                ("", pointer)
+                for pointer in pointers
+            )
 
+        # ----------------------------------------------------
+        # Region loop
+        # ----------------------------------------------------
+        for region_name, region_info in regions.items():
+            print(
+                f"\nBooking region: {region_name}"
+            )
+
+            region_df = df
+
+            cuts = region_info.get(
+                "cuts",
+                []
+            )
+
+            for cut_index, selection in enumerate(
+                cuts
+            ):
+                cut_name = (
+                    f"{region_name}:"
+                    f"{cut_index + 1}: "
+                    f"{selection}"
+                )
+
+                region_df = region_df.Filter(
+                    selection,
+                    cut_name
+                )
+
+            reports[region_name] = (
+                region_df.Report()
+            )
+
+            if not output.GetDirectory(
+                region_name
+            ):
+                output.mkdir(
+                    region_name
+                )
+
+            pointers = book_histograms(
+                region_df,
+                hist_config
+            )
+
+            histogram_actions.extend(
+                (region_name, pointer)
+                for pointer in pointers
+            )
+
+        # ----------------------------------------------------
+        # Execute and write
+        #
+        # All histogram actions are already booked on the graph.
+        # The first action triggers execution; RDF evaluates the
+        # booked lazy graph together.
+        # ----------------------------------------------------
+        print(
+            "\nExecuting RDataFrame graph..."
+        )
+
+        for target_dir, histogram in histogram_actions:
+            if target_dir:
+                output.cd(
+                    target_dir
+                )
+            else:
+                output.cd()
+
+            histogram.Write()
+
+        # ----------------------------------------------------
+        # Cut reports
+        # ----------------------------------------------------
         for region_name, report in reports.items():
-            print(f"\n--- Cut report: {region_name} ---")
+            print(
+                f"\n--- Cut report: "
+                f"{region_name} ---"
+            )
+
             report.Print()
 
         output.Close()
-        print(f"\nOutput written: {output_path}")
 
-    print(f"\nTotal runtime: {time.time() - t0:.2f} s")
+        print(
+            f"\nOutput written: "
+            f"{output_path}"
+        )
+
+    print(
+        f"\nTotal runtime: "
+        f"{time.time() - start_time:.2f} s"
+    )
 
 
 if __name__ == "__main__":
