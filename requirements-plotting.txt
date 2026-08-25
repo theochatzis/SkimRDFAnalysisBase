@@ -1,0 +1,5 @@
+numpy
+matplotlib
+mplhep
+PyYAML
+# PyROOT/ROOT is expected from the CMSSW or ROOT environment.
