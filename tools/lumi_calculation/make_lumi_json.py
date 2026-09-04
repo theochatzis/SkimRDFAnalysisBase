@@ -136,6 +136,12 @@ def main():
         default="processed_lumis.json",
         help="Output CMS JSON"
     )
+    
+    parser.add_argument(
+        "-t", "--tree-name",
+        default="LuminosityBlocks",
+        help="TTree name to access run and luminosityBlock branches"
+    )
 
     parser.add_argument(
         "--cert-json",
@@ -180,7 +186,7 @@ def main():
 
     # uproot syntax: file.root:TreeName
     sources = [
-        f"{filename}:LuminosityBlocks"
+        f"{filename}:{args.tree_name}"
         for filename in files
     ]
 
@@ -197,7 +203,7 @@ def main():
 
     n_entries = 0
 
-    print("Reading LuminosityBlocks ...")
+    print(f"Reading {args.tree_name} ...")
 
     iterator = uproot.iterate(
         sources,
@@ -211,7 +217,7 @@ def main():
 
     for arrays in tqdm(
         iterator,
-        desc="Reading LuminosityBlocks",
+        desc=f"Reading {args.tree_name}",
         unit="chunk",
     ):
         runs = arrays["run"]
@@ -234,7 +240,7 @@ def main():
 
     if not unique_chunks:
         raise RuntimeError(
-            "No LuminosityBlocks entries were found"
+            f"No {args.tree_name} entries were found"
         )
 
     # One final global unique operation.

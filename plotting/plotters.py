@@ -221,100 +221,296 @@ def finite_extent(
         float(np.max(selected)),
     )
 
-
+## Automatic range tools
 def auto_range(
-    series,
+    categories,
     *,
     include_errors=True,
-    padding=0.12,
-    reference=None,
-    minimum_span=None,
+    padding=0.10,
+    max_rel_uncertainty=None,
+    zero_threshold=1e-12,
+    log=False,
 ):
     """
-    series:
-        iterable of (values, errors, mask)
+    Automatically determine a common y-axis range for multiple datasets.
 
-    The range contains all selected points and their error bars.
+    Each entry in `categories` should be:
+        (values, errors, mask)
+    
+    note that so for one dataset only you could do just
+    auto_range([(values,errors,None)])
+
+    where:
+        values : array of central values
+        errors : array of uncertainties, or None
+        mask   : boolean array selecting valid plotted points, or None
+
+    The range is determined from all statistically useful points using:
+        lower edge = value - error
+        upper edge = value + error
+
+    Points do not contribute to the automatic range if:
+        - they are masked out;
+        - their value is non-finite;
+        - their value is effectively zero;
+        - their uncertainty is non-finite;
+        - their relative uncertainty exceeds `max_rel_uncertainty`.
+
+    For logarithmic axes:
+        - only points with (value - error) > 0 are allowed to define
+          the lower range;
+        - padding is applied multiplicatively in log10 space.
+
+    Importantly, excluding a point from auto-ranging does NOT remove it
+    from the plot. It only prevents that point from controlling the axis.
     """
-    lows = []
-    highs = []
 
-    for values, errors, mask in series:
-        extent = finite_extent(
+    all_low = []
+    all_high = []
+
+    # --------------------------------------------------------
+    # Loop over all Data / MC / method categories.
+    # The final range will be common to all of them.
+    # --------------------------------------------------------
+    for values, errors, mask in categories:
+
+        values = np.asarray(
             values,
-            errors,
-            mask=mask,
-            include_errors=include_errors,
+            dtype=float,
         )
 
-        if extent is None:
+        # ----------------------------------------------------
+        # Start from the supplied plotting mask.
+        # If no mask is provided, initially accept every point.
+        # ----------------------------------------------------
+        if mask is None:
+            valid = np.ones(
+                values.shape,
+                dtype=bool,
+            )
+        else:
+            valid = np.asarray(
+                mask,
+                dtype=bool,
+            ).copy()
+
+        # ----------------------------------------------------
+        # Remove non-finite and effectively empty points.
+        # A histogram/profile bin with exactly zero content
+        # should not force the automatic range toward zero.
+        # ----------------------------------------------------
+        valid &= np.isfinite(
+            values
+        )
+
+        valid &= (
+            np.abs(values)
+            > zero_threshold
+        )
+
+        # ----------------------------------------------------
+        # Include uncertainties in the visible range when they
+        # are available:
+        #
+        #     ymin <- value - error
+        #     ymax <- value + error
+        # ----------------------------------------------------
+        if (
+            include_errors
+            and errors is not None
+        ):
+            errors = np.asarray(
+                errors,
+                dtype=float,
+            )
+
+            valid &= np.isfinite(
+                errors
+            )
+
+            valid &= (
+                errors >= 0.0
+            )
+
+            # ------------------------------------------------
+            # Prevent statistically poorly measured outliers
+            # from determining the plot range.
+            #
+            # Example with max_rel_uncertainty = 0.3:
+            #
+            #     1.0 +/- 0.1  -> kept
+            #     1.0 +/- 1.0  -> ignored for auto-ranging
+            # ------------------------------------------------
+            if max_rel_uncertainty is not None:
+
+                rel_uncertainty = np.full(
+                    values.shape,
+                    np.inf,
+                    dtype=float,
+                )
+
+                nonzero = (
+                    np.abs(values)
+                    > zero_threshold
+                )
+
+                rel_uncertainty[nonzero] = (
+                    errors[nonzero]
+                    / np.abs(
+                        values[nonzero]
+                    )
+                )
+
+                valid &= (
+                    rel_uncertainty
+                    <= max_rel_uncertainty
+                )
+
+            low = (
+                values
+                - errors
+            )
+
+            high = (
+                values
+                + errors
+            )
+
+        else:
+            low = values.copy()
+            high = values.copy()
+
+        # ----------------------------------------------------
+        # A logarithmic y-axis cannot use zero or negative
+        # values.
+        #
+        # Do NOT replace such values by something tiny like
+        # 1e-12, because that would artificially produce ranges
+        # such as 1e-12 -> 1e4.
+        #
+        # Instead, simply prevent those points from determining
+        # the automatic logarithmic range.
+        # ----------------------------------------------------
+        if log:
+            valid &= (
+                low
+                > zero_threshold
+            )
+
+            valid &= (
+                high
+                > zero_threshold
+            )
+
+        # ----------------------------------------------------
+        # This particular category may contain no useful points.
+        # In that case simply skip it.
+        # ----------------------------------------------------
+        if not np.any(
+            valid
+        ):
             continue
 
-        lows.append(
-            extent[0]
-        )
-        highs.append(
-            extent[1]
+        all_low.append(
+            low[valid]
         )
 
-    if not lows:
-        return (
-            0.0,
-            1.0,
+        all_high.append(
+            high[valid]
         )
 
-    low = min(lows)
-    high = max(highs)
+    # --------------------------------------------------------
+    # None of the categories contained a useful point.
+    # Let the caller decide what fallback range to use.
+    # --------------------------------------------------------
+    if not all_low:
+        return None
 
-    if reference is not None:
-        low = min(
-            low,
-            float(reference),
-        )
-        high = max(
-            high,
-            float(reference),
-        )
-
-    span = high - low
-
-    if minimum_span is None:
-        scale = max(
-            abs(low),
-            abs(high),
-            1.0,
-        )
-        minimum_span = (
-            0.05
-            * scale
-        )
-
-    if span < minimum_span:
-        center = 0.5 * (
-            low + high
-        )
-
-        low = (
-            center
-            - 0.5 * minimum_span
-        )
-        high = (
-            center
-            + 0.5 * minimum_span
-        )
-
-        span = minimum_span
-
-    margin = (
-        padding
-        * span
+    # --------------------------------------------------------
+    # Find the global extrema across ALL categories.
+    # --------------------------------------------------------
+    ymin = min(
+        np.min(values)
+        for values in all_low
     )
+
+    ymax = max(
+        np.max(values)
+        for values in all_high
+    )
+
+    # --------------------------------------------------------
+    # Add some visual padding.
+    #
+    # For log plots, padding must be multiplicative rather than
+    # additive. We therefore work in log10 space.
+    # --------------------------------------------------------
+    if log:
+
+        log_min = np.log10(
+            ymin
+        )
+
+        log_max = np.log10(
+            ymax
+        )
+
+        log_span = (
+            log_max
+            - log_min
+        )
+
+        # Protect the special case where all useful points have
+        # approximately the same value.
+        if (
+            not np.isfinite(log_span)
+            or log_span <= 0.0
+        ):
+            log_span = 1.0
+
+        ymin = 10.0 ** (
+            log_min
+            - padding * log_span
+        )
+
+        ymax = 10.0 ** (
+            log_max
+            + padding * log_span
+        )
+
+    else:
+
+        span = (
+            ymax
+            - ymin
+        )
+
+        # Protect the special case where all useful points have
+        # approximately the same value.
+        if (
+            not np.isfinite(span)
+            or span <= 0.0
+        ):
+            span = max(
+                abs(ymin),
+                abs(ymax),
+                1.0,
+            )
+
+        ymin -= (
+            padding
+            * span
+        )
+
+        ymax += (
+            padding
+            * span
+        )
 
     return (
-        low - margin,
-        high + margin,
+        ymin,
+        ymax,
     )
-
 
 def hist_visible_mask(
     hist,
@@ -495,6 +691,8 @@ def plot_hist1d_methods_data_mc(
     mc_ratio_uncertainty_band=False,
     mc_ratio_band_alpha=0.20,
     logx=False,
+    logy=False,
+    miny_log_tolerance=1e-6, #small number that shows that if logy is activated and lower y-lim < miny_log_tolerance change to miny_log_tolerance
     legend_outside=False,
     legend_fontsize="x-small",
     ratio_legend=False,
@@ -555,8 +753,8 @@ def plot_hist1d_methods_data_mc(
         )
     )
 
-    main_series = []
-    ratio_series = []
+    main_categories = []
+    ratio_categories = []
 
     for index, key in enumerate(
         keys
@@ -714,7 +912,7 @@ def plot_hist1d_methods_data_mc(
                     zorder=1,
                 )
 
-                ratio_series.append(
+                ratio_categories.append(
                     (
                         np.ones_like(
                             mc_values
@@ -784,7 +982,7 @@ def plot_hist1d_methods_data_mc(
                 )
             )
 
-        main_series.append(
+        main_categories.append(
             (
                 data.values,
                 data.errors,
@@ -792,7 +990,7 @@ def plot_hist1d_methods_data_mc(
             )
         )
 
-        main_series.append(
+        main_categories.append(
             (
                 mc_values,
                 mc_errors,
@@ -825,7 +1023,7 @@ def plot_hist1d_methods_data_mc(
                 )
             )
 
-        ratio_series.append(
+        ratio_categories.append(
             (
                 ratio,
                 ratio_error,
@@ -842,28 +1040,54 @@ def plot_hist1d_methods_data_mc(
         ax.set_xscale(
             "log"
         )
-
+        
+    
     if ylim is not None:
         ax.set_ylim(
             *ylim
         )
-    elif auto_y:
+    if logy:
+        # In this case check if the lowest y-lim is close to zero
+        ymin_, ymax_ = ax.get_ylim()
+
+        if ymin_ < miny_log_tolerance:
+            ax.set_ylim(
+                miny_log_tolerance,
+                ymax_,
+        )
+        y_padding=2.0*y_padding
+    
+    if auto_y:
         ax.set_ylim(
             *auto_range(
-                main_series,
+                main_categories,
                 include_errors=True,
                 padding=y_padding,
+                max_rel_uncertainty=0.5,
+                log=logy
             )
         )
-
+    
+    if logy:
+        ax.set_yscale(
+            "log"
+        )
+    
     if ratio_ylim is not None:
         rax.set_ylim(
             *ratio_ylim
         )
     elif auto_ratio_y:
+        print(auto_range(
+                ratio_categories,
+                include_errors=True,
+                padding=ratio_padding,
+                reference=1.0,
+                minimum_span=0.02,
+            ))
         rax.set_ylim(
             *auto_range(
-                ratio_series,
+                ratio_categories,
                 include_errors=True,
                 padding=ratio_padding,
                 reference=1.0,
