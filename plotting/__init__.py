@@ -26,6 +26,15 @@ from .composition import (
     plot_fraction_composition_data_mc,
 )
 
+from .advanced import (
+    efficiency_graph,
+    hist_to_graph,
+    plot_efficiency,
+    plot_graphs,
+    plot_hist1d_data_mc_stack,
+    sum_histograms,
+)
+
 __all__ = [
     "Hist1D",
     "Hist2D",
@@ -39,4 +48,10 @@ __all__ = [
     "plot_fraction_composition_data_mc",
     "save_figure",
     "auto_range",
+    "efficiency_graph",
+    "hist_to_graph",
+    "plot_efficiency",
+    "plot_graphs",
+    "plot_hist1d_data_mc_stack",
+    "sum_histograms",
 ]
