@@ -1,0 +1,17 @@
+# Optional Z+jet analysis configuration.
+# The basic example works without --analysis-config.
+
+met_prefix: PuppiMET
+match_dr: 0.2
+
+# Empty -> automatically:
+#   data: 1
+#   MC:   sign(genWeight)
+event_weight_expression: ""
+
+jec:
+  enabled: false
+
+  # Required only when enabled: true.
+  json: ""
+  name: ""

@@ -160,8 +160,8 @@ def main():
 
     parser.add_argument(
         "--step-size",
-        default="100 MB",
-        help="uproot chunk size, e.g. '50 MB', '100 MB', '500 MB'"
+        default=100, # "1000 MB"
+        help="uproot chunk size, e.g. '50 MB', '100 MB', '500 MB' or number of trees which is integer "
     )
 
     args = parser.parse_args()

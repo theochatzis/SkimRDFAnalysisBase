@@ -1,59 +1,584 @@
 Z_mass:
+  type: TH1D
   title: "Z mass;m_{#mu#mu} [GeV];Events"
-  bins: [80, 80, 102]
-  variable: "Z_mass"
+  bins: [60, 80, 102]
+  variable: Z_mass
+  weight: eventWeight
 
 Z_pt:
+  type: TH1D
   title: "Z p_{T};p_{T}^{Z} [GeV];Events"
-  bins: [100, 0, 500]
-  variable: "Z_pt"
+  bins: [80, 0, 800]
+  variable: Z_pt
+  weight: eventWeight
 
 Probe_pt:
-  title: "Leading recoil jet p_{T};p_{T}^{jet} [GeV];Events"
-  bins: [100, 0, 500]
-  variable: "Probe_pt"
+  type: TH1D
+  title: "Leading jet p_{T};p_{T}^{jet} [GeV];Events"
+  bins: [80, 0, 800]
+  variable: Probe_pt
+  weight: eventWeight
 
 Probe_eta:
-  title: "Leading recoil jet #eta;#eta^{jet};Events"
-  bins: [100, -5, 5]
-  variable: "Probe_eta"
+  type: TH1D
+  title: "Leading jet #eta;#eta^{jet};Events"
+  bins: [60, -5, 5]
+  variable: Probe_eta
+  weight: eventWeight
+
+Probe_chHEF:
+  type: TH1D
+  title: "Leading jet chHEF;chHEF;Events"
+  bins: [50, 0, 1]
+  variable: Probe_chHEF
+  weight: eventWeight
+
+MET_pt:
+  type: TH1D
+  title: "MET p_{T};p_{T}^{miss} [GeV];Events"
+  bins: [80, 0, 400]
+  variable: MET_pt
+  weight: eventWeight
 
 DB:
-  title: "Direct Balance;p_{T}^{jet}/p_{T}^{Z};Events"
-  bins: [100, 0.5, 2.0]
-  variable: "DB"
+  type: TH1D
+  title: "Direct balance;DB;Events"
+  bins: [60, 0, 2]
+  variable: DB
+  weight: eventWeight
 
 MPF:
-  title: "MPF;MPF;Events"
-  bins: [160, -1, 3]
-  variable: "MPF"
+  type: TH1D
+  title: "MPF response;MPF;Events"
+  bins: [60, 0, 2]
+  variable: MPF
+  weight: eventWeight
 
-DB_vs_Zpt:
-  type: "TProfile"
-  title: "Direct Balance;p_{T}^{Z} [GeV];DB"
-  bins: [100, 0, 500]
-  variable_x: "Z_pt"
-  variable_y: "DB"
+alpha:
+  type: TH1D
+  title: "#alpha;p_{T}^{jet2}/p_{T}^{Z};Events"
+  bins: [50, 0, 1]
+  variable: alpha
+  weight: eventWeight
 
-MPF_vs_Zpt:
-  type: "TProfile"
-  title: "MPF;p_{T}^{Z} [GeV];MPF"
-  bins: [100, 0, 500]
-  variable_x: "Z_pt"
-  variable_y: "MPF"
+nGoodJets:
+  type: TH1D
+  title: "Selected jet multiplicity;N_{jets};Events"
+  bins: [10, 0, 10]
+  variable: nGoodJets
+  weight: eventWeight
 
-DB_2D:
-  type: "TProfile2D"
-  title: "Direct Balance;#eta^{jet};p_{T}^{Z} [GeV];DB"
-  bins: [50, -5, 5, 100, 0, 500]
-  variable_x: "Probe_eta"
-  variable_y: "Z_pt"
-  variable_z: "DB"
+Jet2_pt:
+  type: TH1D
+  title: "Second selected jet p_{T};p_{T}^{jet2} [GeV];Events"
+  bins: [80, 0, 400]
+  variable: Jet2_pt
+  weight: eventWeight
 
-MPF_2D:
-  type: "TProfile2D"
-  title: "MPF;#eta^{jet};p_{T}^{Z} [GeV];MPF"
-  bins: [50, -5, 5, 100, 0, 500]
-  variable_x: "Probe_eta"
-  variable_y: "Z_pt"
-  variable_z: "MPF"
+dPhi_ZProbe:
+  type: TH1D
+  title: "#Delta#phi(Z, leading jet);|#Delta#phi|;Events"
+  bins: [64, 0, 3.2]
+  variable: dPhi_ZProbe
+  weight: eventWeight
+
+DB_vs_Zpt_Incl:
+  type: TProfile
+  title: "DB vs Z p_{T} (Incl);p_{T}^{Z} [GeV];DB"
+  edges: [20, 28, 40, 44, 49, 56, 64, 74, 84, 97, 114, 133, 153, 174, 220, 300, 430, 638, 1032, 2000]
+  variable_x: Z_pt
+  variable_y: DB
+  weight: signalWeight_Incl
+
+MPF_vs_Zpt_Incl:
+  type: TProfile
+  title: "MPF vs Z p_{T} (Incl);p_{T}^{Z} [GeV];MPF"
+  edges: [20, 28, 40, 44, 49, 56, 64, 74, 84, 97, 114, 133, 153, 174, 220, 300, 430, 638, 1032, 2000]
+  variable_x: Z_pt
+  variable_y: MPF
+  weight: signalWeight_Incl
+
+DB_windowed_vs_Zpt_Incl:
+  type: TProfile
+  title: "Windowed DB vs Z p_{T} (Incl);p_{T}^{Z} [GeV];DB"
+  edges: [20, 28, 40, 44, 49, 56, 64, 74, 84, 97, 114, 133, 153, 174, 220, 300, 430, 638, 1032, 2000]
+  variable_x: Z_pt
+  variable_y: DB
+  weight: windowWeight_Incl
+
+MPF_windowed_vs_Zpt_Incl:
+  type: TProfile
+  title: "Windowed MPF vs Z p_{T} (Incl);p_{T}^{Z} [GeV];MPF"
+  edges: [20, 28, 40, 44, 49, 56, 64, 74, 84, 97, 114, 133, 153, 174, 220, 300, 430, 638, 1032, 2000]
+  variable_x: Z_pt
+  variable_y: MPF
+  weight: windowWeight_Incl
+
+eff_den_pt_Incl:
+  type: TH1D
+  title: "Gen jets (Incl);p_{T}^{gen} [GeV];Gen jets"
+  edges: [20, 28, 40, 44, 49, 56, 64, 74, 84, 97, 114, 133, 153, 174, 220, 300, 430, 638, 1032, 2000]
+  variable: GenPt_Incl
+
+eff_num_pt_Incl:
+  type: TH1D
+  title: "Matched gen jets (Incl);p_{T}^{gen} [GeV];Matched gen jets"
+  edges: [20, 28, 40, 44, 49, 56, 64, 74, 84, 97, 114, 133, 153, 174, 220, 300, 430, 638, 1032, 2000]
+  variable: GenMatchedPt_Incl
+
+purity_den_pt_Incl:
+  type: TH1D
+  title: "Reco jets (Incl);p_{T}^{reco} [GeV];Reco jets"
+  edges: [20, 28, 40, 44, 49, 56, 64, 74, 84, 97, 114, 133, 153, 174, 220, 300, 430, 638, 1032, 2000]
+  variable: RecoPt_Incl
+
+purity_num_pt_Incl:
+  type: TH1D
+  title: "Matched reco jets (Incl);p_{T}^{reco} [GeV];Matched reco jets"
+  edges: [20, 28, 40, 44, 49, 56, 64, 74, 84, 97, 114, 133, 153, 174, 220, 300, 430, 638, 1032, 2000]
+  variable: RecoMatchedPt_Incl
+
+chHEF_vs_pt_Incl:
+  type: TProfile
+  title: "chHEF vs jet p_{T} (Incl);p_{T}^{jet} [GeV];<chHEF>"
+  edges: [20, 28, 40, 44, 49, 56, 64, 74, 84, 97, 114, 133, 153, 174, 220, 300, 430, 638, 1032, 2000]
+  variable_x: RecoCompPt_Incl
+  variable_y: RecoChHEF_Incl
+
+DB_vs_Zpt_HB:
+  type: TProfile
+  title: "DB vs Z p_{T} (HB);p_{T}^{Z} [GeV];DB"
+  edges: [20, 28, 40, 44, 49, 56, 64, 74, 84, 97, 114, 133, 153, 174, 220, 300, 430, 638, 1032, 2000]
+  variable_x: Z_pt
+  variable_y: DB
+  weight: signalWeight_HB
+
+MPF_vs_Zpt_HB:
+  type: TProfile
+  title: "MPF vs Z p_{T} (HB);p_{T}^{Z} [GeV];MPF"
+  edges: [20, 28, 40, 44, 49, 56, 64, 74, 84, 97, 114, 133, 153, 174, 220, 300, 430, 638, 1032, 2000]
+  variable_x: Z_pt
+  variable_y: MPF
+  weight: signalWeight_HB
+
+DB_windowed_vs_Zpt_HB:
+  type: TProfile
+  title: "Windowed DB vs Z p_{T} (HB);p_{T}^{Z} [GeV];DB"
+  edges: [20, 28, 40, 44, 49, 56, 64, 74, 84, 97, 114, 133, 153, 174, 220, 300, 430, 638, 1032, 2000]
+  variable_x: Z_pt
+  variable_y: DB
+  weight: windowWeight_HB
+
+MPF_windowed_vs_Zpt_HB:
+  type: TProfile
+  title: "Windowed MPF vs Z p_{T} (HB);p_{T}^{Z} [GeV];MPF"
+  edges: [20, 28, 40, 44, 49, 56, 64, 74, 84, 97, 114, 133, 153, 174, 220, 300, 430, 638, 1032, 2000]
+  variable_x: Z_pt
+  variable_y: MPF
+  weight: windowWeight_HB
+
+eff_den_pt_HB:
+  type: TH1D
+  title: "Gen jets (HB);p_{T}^{gen} [GeV];Gen jets"
+  edges: [20, 28, 40, 44, 49, 56, 64, 74, 84, 97, 114, 133, 153, 174, 220, 300, 430, 638, 1032, 2000]
+  variable: GenPt_HB
+
+eff_num_pt_HB:
+  type: TH1D
+  title: "Matched gen jets (HB);p_{T}^{gen} [GeV];Matched gen jets"
+  edges: [20, 28, 40, 44, 49, 56, 64, 74, 84, 97, 114, 133, 153, 174, 220, 300, 430, 638, 1032, 2000]
+  variable: GenMatchedPt_HB
+
+purity_den_pt_HB:
+  type: TH1D
+  title: "Reco jets (HB);p_{T}^{reco} [GeV];Reco jets"
+  edges: [20, 28, 40, 44, 49, 56, 64, 74, 84, 97, 114, 133, 153, 174, 220, 300, 430, 638, 1032, 2000]
+  variable: RecoPt_HB
+
+purity_num_pt_HB:
+  type: TH1D
+  title: "Matched reco jets (HB);p_{T}^{reco} [GeV];Matched reco jets"
+  edges: [20, 28, 40, 44, 49, 56, 64, 74, 84, 97, 114, 133, 153, 174, 220, 300, 430, 638, 1032, 2000]
+  variable: RecoMatchedPt_HB
+
+chHEF_vs_pt_HB:
+  type: TProfile
+  title: "chHEF vs jet p_{T} (HB);p_{T}^{jet} [GeV];<chHEF>"
+  edges: [20, 28, 40, 44, 49, 56, 64, 74, 84, 97, 114, 133, 153, 174, 220, 300, 430, 638, 1032, 2000]
+  variable_x: RecoCompPt_HB
+  variable_y: RecoChHEF_HB
+
+DB_vs_Zpt_HE1:
+  type: TProfile
+  title: "DB vs Z p_{T} (HE1);p_{T}^{Z} [GeV];DB"
+  edges: [20, 28, 40, 44, 49, 56, 64, 74, 84, 97, 114, 133, 153, 174, 220, 300, 430, 638, 1032, 2000]
+  variable_x: Z_pt
+  variable_y: DB
+  weight: signalWeight_HE1
+
+MPF_vs_Zpt_HE1:
+  type: TProfile
+  title: "MPF vs Z p_{T} (HE1);p_{T}^{Z} [GeV];MPF"
+  edges: [20, 28, 40, 44, 49, 56, 64, 74, 84, 97, 114, 133, 153, 174, 220, 300, 430, 638, 1032, 2000]
+  variable_x: Z_pt
+  variable_y: MPF
+  weight: signalWeight_HE1
+
+DB_windowed_vs_Zpt_HE1:
+  type: TProfile
+  title: "Windowed DB vs Z p_{T} (HE1);p_{T}^{Z} [GeV];DB"
+  edges: [20, 28, 40, 44, 49, 56, 64, 74, 84, 97, 114, 133, 153, 174, 220, 300, 430, 638, 1032, 2000]
+  variable_x: Z_pt
+  variable_y: DB
+  weight: windowWeight_HE1
+
+MPF_windowed_vs_Zpt_HE1:
+  type: TProfile
+  title: "Windowed MPF vs Z p_{T} (HE1);p_{T}^{Z} [GeV];MPF"
+  edges: [20, 28, 40, 44, 49, 56, 64, 74, 84, 97, 114, 133, 153, 174, 220, 300, 430, 638, 1032, 2000]
+  variable_x: Z_pt
+  variable_y: MPF
+  weight: windowWeight_HE1
+
+eff_den_pt_HE1:
+  type: TH1D
+  title: "Gen jets (HE1);p_{T}^{gen} [GeV];Gen jets"
+  edges: [20, 28, 40, 44, 49, 56, 64, 74, 84, 97, 114, 133, 153, 174, 220, 300, 430, 638, 1032, 2000]
+  variable: GenPt_HE1
+
+eff_num_pt_HE1:
+  type: TH1D
+  title: "Matched gen jets (HE1);p_{T}^{gen} [GeV];Matched gen jets"
+  edges: [20, 28, 40, 44, 49, 56, 64, 74, 84, 97, 114, 133, 153, 174, 220, 300, 430, 638, 1032, 2000]
+  variable: GenMatchedPt_HE1
+
+purity_den_pt_HE1:
+  type: TH1D
+  title: "Reco jets (HE1);p_{T}^{reco} [GeV];Reco jets"
+  edges: [20, 28, 40, 44, 49, 56, 64, 74, 84, 97, 114, 133, 153, 174, 220, 300, 430, 638, 1032, 2000]
+  variable: RecoPt_HE1
+
+purity_num_pt_HE1:
+  type: TH1D
+  title: "Matched reco jets (HE1);p_{T}^{reco} [GeV];Matched reco jets"
+  edges: [20, 28, 40, 44, 49, 56, 64, 74, 84, 97, 114, 133, 153, 174, 220, 300, 430, 638, 1032, 2000]
+  variable: RecoMatchedPt_HE1
+
+chHEF_vs_pt_HE1:
+  type: TProfile
+  title: "chHEF vs jet p_{T} (HE1);p_{T}^{jet} [GeV];<chHEF>"
+  edges: [20, 28, 40, 44, 49, 56, 64, 74, 84, 97, 114, 133, 153, 174, 220, 300, 430, 638, 1032, 2000]
+  variable_x: RecoCompPt_HE1
+  variable_y: RecoChHEF_HE1
+
+DB_vs_Zpt_HE2:
+  type: TProfile
+  title: "DB vs Z p_{T} (HE2);p_{T}^{Z} [GeV];DB"
+  edges: [20, 28, 40, 44, 49, 56, 64, 74, 84, 97, 114, 133, 153, 174, 220, 300, 430, 638, 1032, 2000]
+  variable_x: Z_pt
+  variable_y: DB
+  weight: signalWeight_HE2
+
+MPF_vs_Zpt_HE2:
+  type: TProfile
+  title: "MPF vs Z p_{T} (HE2);p_{T}^{Z} [GeV];MPF"
+  edges: [20, 28, 40, 44, 49, 56, 64, 74, 84, 97, 114, 133, 153, 174, 220, 300, 430, 638, 1032, 2000]
+  variable_x: Z_pt
+  variable_y: MPF
+  weight: signalWeight_HE2
+
+DB_windowed_vs_Zpt_HE2:
+  type: TProfile
+  title: "Windowed DB vs Z p_{T} (HE2);p_{T}^{Z} [GeV];DB"
+  edges: [20, 28, 40, 44, 49, 56, 64, 74, 84, 97, 114, 133, 153, 174, 220, 300, 430, 638, 1032, 2000]
+  variable_x: Z_pt
+  variable_y: DB
+  weight: windowWeight_HE2
+
+MPF_windowed_vs_Zpt_HE2:
+  type: TProfile
+  title: "Windowed MPF vs Z p_{T} (HE2);p_{T}^{Z} [GeV];MPF"
+  edges: [20, 28, 40, 44, 49, 56, 64, 74, 84, 97, 114, 133, 153, 174, 220, 300, 430, 638, 1032, 2000]
+  variable_x: Z_pt
+  variable_y: MPF
+  weight: windowWeight_HE2
+
+eff_den_pt_HE2:
+  type: TH1D
+  title: "Gen jets (HE2);p_{T}^{gen} [GeV];Gen jets"
+  edges: [20, 28, 40, 44, 49, 56, 64, 74, 84, 97, 114, 133, 153, 174, 220, 300, 430, 638, 1032, 2000]
+  variable: GenPt_HE2
+
+eff_num_pt_HE2:
+  type: TH1D
+  title: "Matched gen jets (HE2);p_{T}^{gen} [GeV];Matched gen jets"
+  edges: [20, 28, 40, 44, 49, 56, 64, 74, 84, 97, 114, 133, 153, 174, 220, 300, 430, 638, 1032, 2000]
+  variable: GenMatchedPt_HE2
+
+purity_den_pt_HE2:
+  type: TH1D
+  title: "Reco jets (HE2);p_{T}^{reco} [GeV];Reco jets"
+  edges: [20, 28, 40, 44, 49, 56, 64, 74, 84, 97, 114, 133, 153, 174, 220, 300, 430, 638, 1032, 2000]
+  variable: RecoPt_HE2
+
+purity_num_pt_HE2:
+  type: TH1D
+  title: "Matched reco jets (HE2);p_{T}^{reco} [GeV];Matched reco jets"
+  edges: [20, 28, 40, 44, 49, 56, 64, 74, 84, 97, 114, 133, 153, 174, 220, 300, 430, 638, 1032, 2000]
+  variable: RecoMatchedPt_HE2
+
+chHEF_vs_pt_HE2:
+  type: TProfile
+  title: "chHEF vs jet p_{T} (HE2);p_{T}^{jet} [GeV];<chHEF>"
+  edges: [20, 28, 40, 44, 49, 56, 64, 74, 84, 97, 114, 133, 153, 174, 220, 300, 430, 638, 1032, 2000]
+  variable_x: RecoCompPt_HE2
+  variable_y: RecoChHEF_HE2
+
+DB_vs_Zpt_HF:
+  type: TProfile
+  title: "DB vs Z p_{T} (HF);p_{T}^{Z} [GeV];DB"
+  edges: [20, 28, 40, 44, 49, 56, 64, 74, 84, 97, 114, 133, 153, 174, 220, 300, 430, 638, 1032, 2000]
+  variable_x: Z_pt
+  variable_y: DB
+  weight: signalWeight_HF
+
+MPF_vs_Zpt_HF:
+  type: TProfile
+  title: "MPF vs Z p_{T} (HF);p_{T}^{Z} [GeV];MPF"
+  edges: [20, 28, 40, 44, 49, 56, 64, 74, 84, 97, 114, 133, 153, 174, 220, 300, 430, 638, 1032, 2000]
+  variable_x: Z_pt
+  variable_y: MPF
+  weight: signalWeight_HF
+
+DB_windowed_vs_Zpt_HF:
+  type: TProfile
+  title: "Windowed DB vs Z p_{T} (HF);p_{T}^{Z} [GeV];DB"
+  edges: [20, 28, 40, 44, 49, 56, 64, 74, 84, 97, 114, 133, 153, 174, 220, 300, 430, 638, 1032, 2000]
+  variable_x: Z_pt
+  variable_y: DB
+  weight: windowWeight_HF
+
+MPF_windowed_vs_Zpt_HF:
+  type: TProfile
+  title: "Windowed MPF vs Z p_{T} (HF);p_{T}^{Z} [GeV];MPF"
+  edges: [20, 28, 40, 44, 49, 56, 64, 74, 84, 97, 114, 133, 153, 174, 220, 300, 430, 638, 1032, 2000]
+  variable_x: Z_pt
+  variable_y: MPF
+  weight: windowWeight_HF
+
+eff_den_pt_HF:
+  type: TH1D
+  title: "Gen jets (HF);p_{T}^{gen} [GeV];Gen jets"
+  edges: [20, 28, 40, 44, 49, 56, 64, 74, 84, 97, 114, 133, 153, 174, 220, 300, 430, 638, 1032, 2000]
+  variable: GenPt_HF
+
+eff_num_pt_HF:
+  type: TH1D
+  title: "Matched gen jets (HF);p_{T}^{gen} [GeV];Matched gen jets"
+  edges: [20, 28, 40, 44, 49, 56, 64, 74, 84, 97, 114, 133, 153, 174, 220, 300, 430, 638, 1032, 2000]
+  variable: GenMatchedPt_HF
+
+purity_den_pt_HF:
+  type: TH1D
+  title: "Reco jets (HF);p_{T}^{reco} [GeV];Reco jets"
+  edges: [20, 28, 40, 44, 49, 56, 64, 74, 84, 97, 114, 133, 153, 174, 220, 300, 430, 638, 1032, 2000]
+  variable: RecoPt_HF
+
+purity_num_pt_HF:
+  type: TH1D
+  title: "Matched reco jets (HF);p_{T}^{reco} [GeV];Matched reco jets"
+  edges: [20, 28, 40, 44, 49, 56, 64, 74, 84, 97, 114, 133, 153, 174, 220, 300, 430, 638, 1032, 2000]
+  variable: RecoMatchedPt_HF
+
+chHEF_vs_pt_HF:
+  type: TProfile
+  title: "chHEF vs jet p_{T} (HF);p_{T}^{jet} [GeV];<chHEF>"
+  edges: [20, 28, 40, 44, 49, 56, 64, 74, 84, 97, 114, 133, 153, 174, 220, 300, 430, 638, 1032, 2000]
+  variable_x: RecoCompPt_HF
+  variable_y: RecoChHEF_HF
+
+eff_den_eta_pt15to30:
+  type: TH1D
+  title: "Gen jets (pt15to30);#eta^{gen};Gen jets"
+  edges: [-5.191, -3.839, -3.489, -3.139, -2.964, -2.853, -2.65, -2.5, -2.322, -2.172, -1.93, -1.653, -1.479, -1.305, -1.044, -0.783, -0.522, -0.261, 0.0, 0.261, 0.522, 0.783, 1.044, 1.305, 1.479, 1.653, 1.93, 2.172, 2.322, 2.5, 2.65, 2.853, 2.964, 3.139, 3.489, 3.839, 5.191]
+  variable: GenEta_pt15to30
+
+eff_num_eta_pt15to30:
+  type: TH1D
+  title: "Matched gen jets (pt15to30);#eta^{gen};Matched gen jets"
+  edges: [-5.191, -3.839, -3.489, -3.139, -2.964, -2.853, -2.65, -2.5, -2.322, -2.172, -1.93, -1.653, -1.479, -1.305, -1.044, -0.783, -0.522, -0.261, 0.0, 0.261, 0.522, 0.783, 1.044, 1.305, 1.479, 1.653, 1.93, 2.172, 2.322, 2.5, 2.65, 2.853, 2.964, 3.139, 3.489, 3.839, 5.191]
+  variable: GenMatchedEta_pt15to30
+
+purity_den_eta_pt15to30:
+  type: TH1D
+  title: "Reco jets (pt15to30);#eta^{reco};Reco jets"
+  edges: [-5.191, -3.839, -3.489, -3.139, -2.964, -2.853, -2.65, -2.5, -2.322, -2.172, -1.93, -1.653, -1.479, -1.305, -1.044, -0.783, -0.522, -0.261, 0.0, 0.261, 0.522, 0.783, 1.044, 1.305, 1.479, 1.653, 1.93, 2.172, 2.322, 2.5, 2.65, 2.853, 2.964, 3.139, 3.489, 3.839, 5.191]
+  variable: RecoEta_pt15to30
+
+purity_num_eta_pt15to30:
+  type: TH1D
+  title: "Matched reco jets (pt15to30);#eta^{reco};Matched reco jets"
+  edges: [-5.191, -3.839, -3.489, -3.139, -2.964, -2.853, -2.65, -2.5, -2.322, -2.172, -1.93, -1.653, -1.479, -1.305, -1.044, -0.783, -0.522, -0.261, 0.0, 0.261, 0.522, 0.783, 1.044, 1.305, 1.479, 1.653, 1.93, 2.172, 2.322, 2.5, 2.65, 2.853, 2.964, 3.139, 3.489, 3.839, 5.191]
+  variable: RecoMatchedEta_pt15to30
+
+chHEF_vs_eta_pt15to30:
+  type: TProfile
+  title: "chHEF vs jet #eta (pt15to30);#eta^{jet};<chHEF>"
+  edges: [-5.191, -3.839, -3.489, -3.139, -2.964, -2.853, -2.65, -2.5, -2.322, -2.172, -1.93, -1.653, -1.479, -1.305, -1.044, -0.783, -0.522, -0.261, 0.0, 0.261, 0.522, 0.783, 1.044, 1.305, 1.479, 1.653, 1.93, 2.172, 2.322, 2.5, 2.65, 2.853, 2.964, 3.139, 3.489, 3.839, 5.191]
+  variable_x: RecoCompEta_pt15to30
+  variable_y: RecoChHEF_eta_pt15to30
+
+eff_den_eta_pt30to60:
+  type: TH1D
+  title: "Gen jets (pt30to60);#eta^{gen};Gen jets"
+  edges: [-5.191, -3.839, -3.489, -3.139, -2.964, -2.853, -2.65, -2.5, -2.322, -2.172, -1.93, -1.653, -1.479, -1.305, -1.044, -0.783, -0.522, -0.261, 0.0, 0.261, 0.522, 0.783, 1.044, 1.305, 1.479, 1.653, 1.93, 2.172, 2.322, 2.5, 2.65, 2.853, 2.964, 3.139, 3.489, 3.839, 5.191]
+  variable: GenEta_pt30to60
+
+eff_num_eta_pt30to60:
+  type: TH1D
+  title: "Matched gen jets (pt30to60);#eta^{gen};Matched gen jets"
+  edges: [-5.191, -3.839, -3.489, -3.139, -2.964, -2.853, -2.65, -2.5, -2.322, -2.172, -1.93, -1.653, -1.479, -1.305, -1.044, -0.783, -0.522, -0.261, 0.0, 0.261, 0.522, 0.783, 1.044, 1.305, 1.479, 1.653, 1.93, 2.172, 2.322, 2.5, 2.65, 2.853, 2.964, 3.139, 3.489, 3.839, 5.191]
+  variable: GenMatchedEta_pt30to60
+
+purity_den_eta_pt30to60:
+  type: TH1D
+  title: "Reco jets (pt30to60);#eta^{reco};Reco jets"
+  edges: [-5.191, -3.839, -3.489, -3.139, -2.964, -2.853, -2.65, -2.5, -2.322, -2.172, -1.93, -1.653, -1.479, -1.305, -1.044, -0.783, -0.522, -0.261, 0.0, 0.261, 0.522, 0.783, 1.044, 1.305, 1.479, 1.653, 1.93, 2.172, 2.322, 2.5, 2.65, 2.853, 2.964, 3.139, 3.489, 3.839, 5.191]
+  variable: RecoEta_pt30to60
+
+purity_num_eta_pt30to60:
+  type: TH1D
+  title: "Matched reco jets (pt30to60);#eta^{reco};Matched reco jets"
+  edges: [-5.191, -3.839, -3.489, -3.139, -2.964, -2.853, -2.65, -2.5, -2.322, -2.172, -1.93, -1.653, -1.479, -1.305, -1.044, -0.783, -0.522, -0.261, 0.0, 0.261, 0.522, 0.783, 1.044, 1.305, 1.479, 1.653, 1.93, 2.172, 2.322, 2.5, 2.65, 2.853, 2.964, 3.139, 3.489, 3.839, 5.191]
+  variable: RecoMatchedEta_pt30to60
+
+chHEF_vs_eta_pt30to60:
+  type: TProfile
+  title: "chHEF vs jet #eta (pt30to60);#eta^{jet};<chHEF>"
+  edges: [-5.191, -3.839, -3.489, -3.139, -2.964, -2.853, -2.65, -2.5, -2.322, -2.172, -1.93, -1.653, -1.479, -1.305, -1.044, -0.783, -0.522, -0.261, 0.0, 0.261, 0.522, 0.783, 1.044, 1.305, 1.479, 1.653, 1.93, 2.172, 2.322, 2.5, 2.65, 2.853, 2.964, 3.139, 3.489, 3.839, 5.191]
+  variable_x: RecoCompEta_pt30to60
+  variable_y: RecoChHEF_eta_pt30to60
+
+eff_den_eta_pt60to120:
+  type: TH1D
+  title: "Gen jets (pt60to120);#eta^{gen};Gen jets"
+  edges: [-5.191, -3.839, -3.489, -3.139, -2.964, -2.853, -2.65, -2.5, -2.322, -2.172, -1.93, -1.653, -1.479, -1.305, -1.044, -0.783, -0.522, -0.261, 0.0, 0.261, 0.522, 0.783, 1.044, 1.305, 1.479, 1.653, 1.93, 2.172, 2.322, 2.5, 2.65, 2.853, 2.964, 3.139, 3.489, 3.839, 5.191]
+  variable: GenEta_pt60to120
+
+eff_num_eta_pt60to120:
+  type: TH1D
+  title: "Matched gen jets (pt60to120);#eta^{gen};Matched gen jets"
+  edges: [-5.191, -3.839, -3.489, -3.139, -2.964, -2.853, -2.65, -2.5, -2.322, -2.172, -1.93, -1.653, -1.479, -1.305, -1.044, -0.783, -0.522, -0.261, 0.0, 0.261, 0.522, 0.783, 1.044, 1.305, 1.479, 1.653, 1.93, 2.172, 2.322, 2.5, 2.65, 2.853, 2.964, 3.139, 3.489, 3.839, 5.191]
+  variable: GenMatchedEta_pt60to120
+
+purity_den_eta_pt60to120:
+  type: TH1D
+  title: "Reco jets (pt60to120);#eta^{reco};Reco jets"
+  edges: [-5.191, -3.839, -3.489, -3.139, -2.964, -2.853, -2.65, -2.5, -2.322, -2.172, -1.93, -1.653, -1.479, -1.305, -1.044, -0.783, -0.522, -0.261, 0.0, 0.261, 0.522, 0.783, 1.044, 1.305, 1.479, 1.653, 1.93, 2.172, 2.322, 2.5, 2.65, 2.853, 2.964, 3.139, 3.489, 3.839, 5.191]
+  variable: RecoEta_pt60to120
+
+purity_num_eta_pt60to120:
+  type: TH1D
+  title: "Matched reco jets (pt60to120);#eta^{reco};Matched reco jets"
+  edges: [-5.191, -3.839, -3.489, -3.139, -2.964, -2.853, -2.65, -2.5, -2.322, -2.172, -1.93, -1.653, -1.479, -1.305, -1.044, -0.783, -0.522, -0.261, 0.0, 0.261, 0.522, 0.783, 1.044, 1.305, 1.479, 1.653, 1.93, 2.172, 2.322, 2.5, 2.65, 2.853, 2.964, 3.139, 3.489, 3.839, 5.191]
+  variable: RecoMatchedEta_pt60to120
+
+chHEF_vs_eta_pt60to120:
+  type: TProfile
+  title: "chHEF vs jet #eta (pt60to120);#eta^{jet};<chHEF>"
+  edges: [-5.191, -3.839, -3.489, -3.139, -2.964, -2.853, -2.65, -2.5, -2.322, -2.172, -1.93, -1.653, -1.479, -1.305, -1.044, -0.783, -0.522, -0.261, 0.0, 0.261, 0.522, 0.783, 1.044, 1.305, 1.479, 1.653, 1.93, 2.172, 2.322, 2.5, 2.65, 2.853, 2.964, 3.139, 3.489, 3.839, 5.191]
+  variable_x: RecoCompEta_pt60to120
+  variable_y: RecoChHEF_eta_pt60to120
+
+eff_den_eta_pt120to300:
+  type: TH1D
+  title: "Gen jets (pt120to300);#eta^{gen};Gen jets"
+  edges: [-5.191, -3.839, -3.489, -3.139, -2.964, -2.853, -2.65, -2.5, -2.322, -2.172, -1.93, -1.653, -1.479, -1.305, -1.044, -0.783, -0.522, -0.261, 0.0, 0.261, 0.522, 0.783, 1.044, 1.305, 1.479, 1.653, 1.93, 2.172, 2.322, 2.5, 2.65, 2.853, 2.964, 3.139, 3.489, 3.839, 5.191]
+  variable: GenEta_pt120to300
+
+eff_num_eta_pt120to300:
+  type: TH1D
+  title: "Matched gen jets (pt120to300);#eta^{gen};Matched gen jets"
+  edges: [-5.191, -3.839, -3.489, -3.139, -2.964, -2.853, -2.65, -2.5, -2.322, -2.172, -1.93, -1.653, -1.479, -1.305, -1.044, -0.783, -0.522, -0.261, 0.0, 0.261, 0.522, 0.783, 1.044, 1.305, 1.479, 1.653, 1.93, 2.172, 2.322, 2.5, 2.65, 2.853, 2.964, 3.139, 3.489, 3.839, 5.191]
+  variable: GenMatchedEta_pt120to300
+
+purity_den_eta_pt120to300:
+  type: TH1D
+  title: "Reco jets (pt120to300);#eta^{reco};Reco jets"
+  edges: [-5.191, -3.839, -3.489, -3.139, -2.964, -2.853, -2.65, -2.5, -2.322, -2.172, -1.93, -1.653, -1.479, -1.305, -1.044, -0.783, -0.522, -0.261, 0.0, 0.261, 0.522, 0.783, 1.044, 1.305, 1.479, 1.653, 1.93, 2.172, 2.322, 2.5, 2.65, 2.853, 2.964, 3.139, 3.489, 3.839, 5.191]
+  variable: RecoEta_pt120to300
+
+purity_num_eta_pt120to300:
+  type: TH1D
+  title: "Matched reco jets (pt120to300);#eta^{reco};Matched reco jets"
+  edges: [-5.191, -3.839, -3.489, -3.139, -2.964, -2.853, -2.65, -2.5, -2.322, -2.172, -1.93, -1.653, -1.479, -1.305, -1.044, -0.783, -0.522, -0.261, 0.0, 0.261, 0.522, 0.783, 1.044, 1.305, 1.479, 1.653, 1.93, 2.172, 2.322, 2.5, 2.65, 2.853, 2.964, 3.139, 3.489, 3.839, 5.191]
+  variable: RecoMatchedEta_pt120to300
+
+chHEF_vs_eta_pt120to300:
+  type: TProfile
+  title: "chHEF vs jet #eta (pt120to300);#eta^{jet};<chHEF>"
+  edges: [-5.191, -3.839, -3.489, -3.139, -2.964, -2.853, -2.65, -2.5, -2.322, -2.172, -1.93, -1.653, -1.479, -1.305, -1.044, -0.783, -0.522, -0.261, 0.0, 0.261, 0.522, 0.783, 1.044, 1.305, 1.479, 1.653, 1.93, 2.172, 2.322, 2.5, 2.65, 2.853, 2.964, 3.139, 3.489, 3.839, 5.191]
+  variable_x: RecoCompEta_pt120to300
+  variable_y: RecoChHEF_eta_pt120to300
+
+eff_den_eta_pt300to1000:
+  type: TH1D
+  title: "Gen jets (pt300to1000);#eta^{gen};Gen jets"
+  edges: [-5.191, -3.839, -3.489, -3.139, -2.964, -2.853, -2.65, -2.5, -2.322, -2.172, -1.93, -1.653, -1.479, -1.305, -1.044, -0.783, -0.522, -0.261, 0.0, 0.261, 0.522, 0.783, 1.044, 1.305, 1.479, 1.653, 1.93, 2.172, 2.322, 2.5, 2.65, 2.853, 2.964, 3.139, 3.489, 3.839, 5.191]
+  variable: GenEta_pt300to1000
+
+eff_num_eta_pt300to1000:
+  type: TH1D
+  title: "Matched gen jets (pt300to1000);#eta^{gen};Matched gen jets"
+  edges: [-5.191, -3.839, -3.489, -3.139, -2.964, -2.853, -2.65, -2.5, -2.322, -2.172, -1.93, -1.653, -1.479, -1.305, -1.044, -0.783, -0.522, -0.261, 0.0, 0.261, 0.522, 0.783, 1.044, 1.305, 1.479, 1.653, 1.93, 2.172, 2.322, 2.5, 2.65, 2.853, 2.964, 3.139, 3.489, 3.839, 5.191]
+  variable: GenMatchedEta_pt300to1000
+
+purity_den_eta_pt300to1000:
+  type: TH1D
+  title: "Reco jets (pt300to1000);#eta^{reco};Reco jets"
+  edges: [-5.191, -3.839, -3.489, -3.139, -2.964, -2.853, -2.65, -2.5, -2.322, -2.172, -1.93, -1.653, -1.479, -1.305, -1.044, -0.783, -0.522, -0.261, 0.0, 0.261, 0.522, 0.783, 1.044, 1.305, 1.479, 1.653, 1.93, 2.172, 2.322, 2.5, 2.65, 2.853, 2.964, 3.139, 3.489, 3.839, 5.191]
+  variable: RecoEta_pt300to1000
+
+purity_num_eta_pt300to1000:
+  type: TH1D
+  title: "Matched reco jets (pt300to1000);#eta^{reco};Matched reco jets"
+  edges: [-5.191, -3.839, -3.489, -3.139, -2.964, -2.853, -2.65, -2.5, -2.322, -2.172, -1.93, -1.653, -1.479, -1.305, -1.044, -0.783, -0.522, -0.261, 0.0, 0.261, 0.522, 0.783, 1.044, 1.305, 1.479, 1.653, 1.93, 2.172, 2.322, 2.5, 2.65, 2.853, 2.964, 3.139, 3.489, 3.839, 5.191]
+  variable: RecoMatchedEta_pt300to1000
+
+chHEF_vs_eta_pt300to1000:
+  type: TProfile
+  title: "chHEF vs jet #eta (pt300to1000);#eta^{jet};<chHEF>"
+  edges: [-5.191, -3.839, -3.489, -3.139, -2.964, -2.853, -2.65, -2.5, -2.322, -2.172, -1.93, -1.653, -1.479, -1.305, -1.044, -0.783, -0.522, -0.261, 0.0, 0.261, 0.522, 0.783, 1.044, 1.305, 1.479, 1.653, 1.93, 2.172, 2.322, 2.5, 2.65, 2.853, 2.964, 3.139, 3.489, 3.839, 5.191]
+  variable_x: RecoCompEta_pt300to1000
+  variable_y: RecoChHEF_eta_pt300to1000
+
+eff_den_eta_pt1000plus:
+  type: TH1D
+  title: "Gen jets (pt1000plus);#eta^{gen};Gen jets"
+  edges: [-5.191, -3.839, -3.489, -3.139, -2.964, -2.853, -2.65, -2.5, -2.322, -2.172, -1.93, -1.653, -1.479, -1.305, -1.044, -0.783, -0.522, -0.261, 0.0, 0.261, 0.522, 0.783, 1.044, 1.305, 1.479, 1.653, 1.93, 2.172, 2.322, 2.5, 2.65, 2.853, 2.964, 3.139, 3.489, 3.839, 5.191]
+  variable: GenEta_pt1000plus
+
+eff_num_eta_pt1000plus:
+  type: TH1D
+  title: "Matched gen jets (pt1000plus);#eta^{gen};Matched gen jets"
+  edges: [-5.191, -3.839, -3.489, -3.139, -2.964, -2.853, -2.65, -2.5, -2.322, -2.172, -1.93, -1.653, -1.479, -1.305, -1.044, -0.783, -0.522, -0.261, 0.0, 0.261, 0.522, 0.783, 1.044, 1.305, 1.479, 1.653, 1.93, 2.172, 2.322, 2.5, 2.65, 2.853, 2.964, 3.139, 3.489, 3.839, 5.191]
+  variable: GenMatchedEta_pt1000plus
+
+purity_den_eta_pt1000plus:
+  type: TH1D
+  title: "Reco jets (pt1000plus);#eta^{reco};Reco jets"
+  edges: [-5.191, -3.839, -3.489, -3.139, -2.964, -2.853, -2.65, -2.5, -2.322, -2.172, -1.93, -1.653, -1.479, -1.305, -1.044, -0.783, -0.522, -0.261, 0.0, 0.261, 0.522, 0.783, 1.044, 1.305, 1.479, 1.653, 1.93, 2.172, 2.322, 2.5, 2.65, 2.853, 2.964, 3.139, 3.489, 3.839, 5.191]
+  variable: RecoEta_pt1000plus
+
+purity_num_eta_pt1000plus:
+  type: TH1D
+  title: "Matched reco jets (pt1000plus);#eta^{reco};Matched reco jets"
+  edges: [-5.191, -3.839, -3.489, -3.139, -2.964, -2.853, -2.65, -2.5, -2.322, -2.172, -1.93, -1.653, -1.479, -1.305, -1.044, -0.783, -0.522, -0.261, 0.0, 0.261, 0.522, 0.783, 1.044, 1.305, 1.479, 1.653, 1.93, 2.172, 2.322, 2.5, 2.65, 2.853, 2.964, 3.139, 3.489, 3.839, 5.191]
+  variable: RecoMatchedEta_pt1000plus
+
+chHEF_vs_eta_pt1000plus:
+  type: TProfile
+  title: "chHEF vs jet #eta (pt1000plus);#eta^{jet};<chHEF>"
+  edges: [-5.191, -3.839, -3.489, -3.139, -2.964, -2.853, -2.65, -2.5, -2.322, -2.172, -1.93, -1.653, -1.479, -1.305, -1.044, -0.783, -0.522, -0.261, 0.0, 0.261, 0.522, 0.783, 1.044, 1.305, 1.479, 1.653, 1.93, 2.172, 2.322, 2.5, 2.65, 2.853, 2.964, 3.139, 3.489, 3.839, 5.191]
+  variable_x: RecoCompEta_pt1000plus
+  variable_y: RecoChHEF_eta_pt1000plus
