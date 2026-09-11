@@ -243,24 +243,3 @@ or redirected explicitly with:
 export SKIMRDF_MPLCONFIGDIR=/some/local/path
 ```
 
-## ROOT-only backend
-
-The package now also contains:
-
-```text
-plotting_root/
-```
-
-This is an independent pure-PyROOT plotting backend. It imports no matplotlib
-or mplhep and supports ROOT-native histograms, profiles, graphs, efficiencies,
-stacks, ratio pads and 2D comparisons.
-
-A generic CLI is available as:
-
-```bash
-python3 plot_root_objects_root.py compare \
-  --data data.root \
-  --mc mc.root \
-  --object zjet/Jet_eta_parallel \
-  --output jet_eta.pdf
-```
