@@ -96,16 +96,38 @@ This is done using the `pileupCalc.py` tool ([documentation](https://twiki.cern.
 This measures in data the expected average pileup $\mu$ from the recorded instantaneous luminosity $L_{inst}$ as follows:
 $$\mu \sim \frac{L_{inst}\times \sigma_{inel}}{f_{crossings}} $$
 where $\sigma_{inel}$ is the inelastic QCD cross-section and $f_{crossings}$ bunch crossing frequency (in Hz).
-Note that the $\sigma_{inel}$ is important and this also contributes to the uncertainty of this measurement. Run2 can use 69.2 this is the one at 13TeV. The extrapolated cross-section at 13.6 TeV (Run3) is 80mb.
+Note that the $\sigma_{inel}$ is important and this also contributes to the uncertainty of this measurement. Run2 can use 69.2 this is the one at 13TeV. The actual correct value is around 75mb. Theorectically at 13.6 it is 78.8mb but data prefer 75.3mb, see [slides](https://indico.cern.ch/event/1481948/contributions/6316440/attachments/2996791/5281156/2025_01_16_PPD_sigmaMB.pdf). Error can be used 4.6% uncertainty for xsec.
 
-Example:
+Example with 69.2mb nominal:
 ```bash
-pileupCalc.py -i MyAnalysisJSON.txt --inputLumiJSON pileup_latest.txt --calcMode true --minBiasXsec 80000 --maxPileupBin 100 --numPileupBins 100 MyDataPileupHistogram.root
+pileupCalc.py -i MyAnalysisJSON.txt --inputLumiJSON pileup_latest.txt --calcMode true --minBiasXsec 69200 --maxPileupBin 100 --numPileupBins 100 MyDataPileupHistogram_NominalXSEC.root
+
+pileupCalc.py -i MyAnalysisJSON.txt --inputLumiJSON pileup_latest.txt --calcMode true --minBiasXsec 72400 --maxPileupBin 100 --numPileupBins 100 MyDataPileupHistogram_UpXSEC.root
+
+pileupCalc.py -i MyAnalysisJSON.txt --inputLumiJSON pileup_latest.txt --calcMode true --minBiasXsec 66000 --maxPileupBin 100 --numPileupBins 100 MyDataPileupHistogram_DownXSEC.root
+```
+
+e.g. 2025
+```bash
+pileupCalc.py -i processed_lumis.json --inputLumiJSON /eos/user/c/cmsdqm/www/CAF/certification/Collisions25/PileUp/pileup_JSON-2025_Golden.txt --calcMode true --minBiasXsec 69200 --maxPileupBin 100 --numPileupBins 100 MyDataPileupHistogram_NominalXSEC.root
+```
+
+Example with 75.3mb nominal:
+```bash
+pileupCalc.py -i MyAnalysisJSON.txt --inputLumiJSON pileup_latest.txt --calcMode true --minBiasXsec 75300 --maxPileupBin 100 --numPileupBins 100 MyDataPileupHistogram_NominalXSEC.root
+
+pileupCalc.py -i MyAnalysisJSON.txt --inputLumiJSON pileup_latest.txt --calcMode true --minBiasXsec 78800 --maxPileupBin 100 --numPileupBins 100 MyDataPileupHistogram_UpXSEC.root
+
+pileupCalc.py -i MyAnalysisJSON.txt --inputLumiJSON pileup_latest.txt --calcMode true --minBiasXsec 71800 --maxPileupBin 100 --numPileupBins 100 MyDataPileupHistogram_DownXSEC.root
 ```
 
 where:
 - MyAnalysisJSON.txt is the JSON file defining the lumi sections that your analysis uses. This is generally the appropriate certification JSON file from PdmV or processedLumis.json from your CRAB job.
-- pileup_latest.txt is the appropriate pileup file for your analysis. You can find those under `/eos/user/c/cmsdqm/www/CAF/certification/Collisions[YEAR]/PileUp/`.
+- pileup_latest.txt is the appropriate pileup file for your analysis. You can find those under `/eos/user/c/cmsdqm/www/CAF/certification/Collisions[YEAR]/PileUp/` where YEAR=22,23,24,25 etc.
+e.g. for 2025:
+```
+/eos/user/c/cmsdqm/www/CAF/certification/Collisions25/PileUp/pileup_JSON-2025_Golden.txt
+```
 - minBiasXsec defines the minimum bias cross section to use (in μb). The current run 2 recommended value is 69200.
 - MyDataPileupHistogram.root is the name of the output file.
 
