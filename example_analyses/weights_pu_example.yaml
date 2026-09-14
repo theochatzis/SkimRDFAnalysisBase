@@ -1,0 +1,79 @@
+# Example generic event-weight configuration.
+#
+# Every enabled weight becomes an RDataFrame column with the YAML key name.
+# If up/down variations exist, columns are also defined as:
+#   <weightName>_up
+#   <weightName>_down
+#
+# All nominal weights are multiplied into:
+#   eventWeight
+#
+# Combined systematic columns are produced automatically, e.g.
+#   eventWeight_puWeight_up
+#   eventWeight_puWeight_down
+#
+# A histogram without an explicit `weight:` field uses eventWeight.
+# To keep a histogram unweighted, set:
+#   weight: null
+
+event_weight_name: eventWeight
+
+weights:
+
+  generatorWeight:
+    enabled: true
+    type: expression
+    apply_to: mc
+    requires: [genWeight]
+    expressions:
+      nominal: genWeight
+
+  puWeight:
+    enabled: true
+    type: correctionlib
+    apply_to: mc
+
+    # Relative paths are resolved relative to this YAML file.
+    json: ../tools/lumi_calculation/pileupWeightJSON/pileupWeight_Run3Winter25_2025G.json
+    correction: Collisions25_goldenJSON
+
+    # Ordered exactly as the correctionlib payload inputs.
+    arguments:
+      - column: Pileup_nTrueInt
+        type: real
+
+      - variation: true
+        type: string
+
+    variations:
+      nominal: nominal
+      up: up
+      down: down
+
+    histogram:
+      title: "Pileup weight;Pileup weight;Events"
+      bins: [100, 0.0, 5.0]
+      include_variations: true
+
+
+  # Example of an already-defined RDF expression weight.
+  #
+  # muonWeight:
+  #   enabled: true
+  #   type: expression
+  #   apply_to: mc
+  #
+  #   requires:
+  #     - MuonSF
+  #     - MuonSF_up
+  #     - MuonSF_down
+  #
+  #   expressions:
+  #     nominal: MuonSF
+  #     up: MuonSF_up
+  #     down: MuonSF_down
+  #
+  #   histogram:
+  #     title: "Muon weight;Muon weight;Events"
+  #     bins: [100, 0.5, 1.5]
+  #     include_variations: true

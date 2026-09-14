@@ -279,27 +279,6 @@ def define_columns(df, sample=None, args=None, config=None):
     )
 
     # ------------------------------------------------------------------
-    # Data / MC event weight
-    # ------------------------------------------------------------------
-    weight_expression = config.get(
-        "event_weight_expression",
-        ""
-    )
-
-    if not weight_expression:
-        if "genWeight" in columns:
-            weight_expression = (
-                "(genWeight >= 0.f ? 1.0 : -1.0)"
-            )
-        else:
-            weight_expression = "1.0"
-
-    df = df.Define(
-        "eventWeight",
-        weight_expression
-    )
-
-    # ------------------------------------------------------------------
     # Muons and Z candidate
     # ------------------------------------------------------------------
     df = df.Define(
@@ -498,55 +477,7 @@ def define_columns(df, sample=None, args=None, config=None):
             && GoodJets.size() > 0
             """
         )
-        .Define(
-            "signalWindowWeight",
-            """
-            zjetValid
-            ? eventWeight * (
-                skimrdf::inOppositeWindow(
-                    Z.phi(),
-                    Probe.phi()
-                ) ? 1.0 : 0.0
-              )
-            : 0.0
-            """
-        )
-        .Define(
-            "windowWeight",
-            """
-            zjetValid
-            ? eventWeight * skimrdf::windowedBalanceWeight(
-                Z.phi(),
-                Probe.phi()
-              )
-            : 0.0
-            """
-        )
     )
-
-    # ------------------------------------------------------------------
-    # Eta-category weights for DB / MPF profiles
-    # ------------------------------------------------------------------
-    #
-    # Keeping eta categories as weight columns means the same dataframe and
-    # one generic zjet region can produce all eta-dependent response plots.
-    for category, (eta_min, eta_max) in ETA_CATEGORIES.items():
-        eta_selection = (
-            f"(fabs(Probe.eta()) >= {eta_min}f "
-            f"&& fabs(Probe.eta()) < {eta_max}f)"
-        )
-
-        df = (
-            df
-            .Define(
-                f"signalWeight_{category}",
-                f"signalWindowWeight * ({eta_selection} ? 1.0 : 0.0)"
-            )
-            .Define(
-                f"windowWeight_{category}",
-                f"windowWeight * ({eta_selection} ? 1.0 : 0.0)"
-            )
-        )
 
     # ------------------------------------------------------------------
     # MC-only reco <-> gen matching
@@ -802,6 +733,24 @@ def define_columns(df, sample=None, args=None, config=None):
                     "ROOT::VecOps::RVec<float>{}"
                 )
 
+    return df
+
+
+def define_weighted_columns(df, sample=None, args=None, config=None, event_weight=None):
+    """Called after the runner combines weights, so profiles use the final weight."""
+    if event_weight is None:
+        expression = (config or {}).get("event_weight_expression", "")
+        expression = expression or ("genWeight" if "genWeight" in _column_names(df) else "1.0")
+        df = df.Define("eventWeight", expression)
+    elif event_weight != "eventWeight":
+        df = df.Define("eventWeight", event_weight)
+
+    df = df.Define("signalWindowWeight", "zjetValid ? eventWeight * (skimrdf::inOppositeWindow(Z.phi(), Probe.phi()) ? 1.0 : 0.0) : 0.0")
+    df = df.Define("windowWeight", "zjetValid ? eventWeight * skimrdf::windowedBalanceWeight(Z.phi(), Probe.phi()) : 0.0")
+    for category, (eta_min, eta_max) in ETA_CATEGORIES.items():
+        selection = f"(fabs(Probe.eta()) >= {eta_min}f && fabs(Probe.eta()) < {eta_max}f)"
+        df = df.Define(f"signalWeight_{category}", f"signalWindowWeight * ({selection} ? 1.0 : 0.0)")
+        df = df.Define(f"windowWeight_{category}", f"windowWeight * ({selection} ? 1.0 : 0.0)")
     return df
 
 

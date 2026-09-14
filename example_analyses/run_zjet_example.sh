@@ -1,11 +1,13 @@
 #!/bin/bash
 set -euo pipefail
+export PYTHONNOUSERSITE=1 # Skip all user-installed Python packages so build and runtime use CMSSW's compatible correctionlib.
 
 # Optional in case you have e.g. changed Common/src/Corrections.cc compile once.
 (
   cd "$(dirname "$0")/../Common"
   source setup_Common_cpp.sh
 )
+
 
 
 python3 $(dirname "$0")/../run_analysis.py \
@@ -22,6 +24,7 @@ python3 $(dirname "$0")/../run_analysis.py \
   --file-pattern "*.root" \
   --histograms-defs example_analyses/zjet_histograms.yaml \
   --rdf-definition example_analyses/zjet_rdf_definition.py \
+  --weights-defs example_analyses/weights_pu_example.yaml \
   --add-no-selection
 
 python3 plot_zjet_with_tools.py \
@@ -29,6 +32,7 @@ python3 plot_zjet_with_tools.py \
     --mc DY=zjet_example_output/ZTo2Mu.root \
     --region zjet \
     --output-dir zjet_plots \
+    --normalize-mc-to-data \
     --efficiency-process DY
 
 # Optional configuration:
