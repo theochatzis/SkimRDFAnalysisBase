@@ -1,4 +1,5 @@
 from collections import OrderedDict
+import warnings
 
 import numpy as np
 
@@ -195,7 +196,7 @@ def efficiency_graph(
     denominator,
     *,
     confidence_level=0.682689492137,
-    interval="clopper-pearson",
+    interval="kish-bayesian",
     include_x_errors=True,
     drop_empty=True,
     name="efficiency",
@@ -205,7 +206,9 @@ def efficiency_graph(
     Build a Graph1D from numerator/denominator Hist1D objects.
 
     Supported intervals:
-      * "clopper-pearson" (default): ROOT TEfficiency exact binomial interval.
+      * "kish-bayesian" (default): approximate Jeffreys intervals using
+        Kish effective counts. Assumes nonnegative weights.
+      * "clopper-pearson": ROOT TEfficiency exact binomial interval.
         Numerator and denominator must contain unweighted integer counts.
       * "normal": symmetric sqrt(e(1-e)/N) approximation.
 
@@ -218,12 +221,33 @@ def efficiency_graph(
 
     interval = interval.lower()
 
+    if not 0.0 < confidence_level < 1.0:
+        raise ValueError("confidence_level must be between 0 and 1.")
+
     if interval not in (
+        "kish-bayesian",
         "clopper-pearson",
         "normal",
     ):
         raise ValueError(
-            "interval must be 'clopper-pearson' or 'normal'."
+            "interval must be 'kish-bayesian', 'clopper-pearson', or 'normal'."
+        )
+
+    if interval == "kish-bayesian":
+        from scipy.special import betaincinv
+
+        if denominator.errors is None:
+            raise ValueError("Kish effective counts require denominator errors from sumw2.")
+
+        # Kish's binomial interpretation assumes nonnegative event weights.
+        # Signed genWeight can invalidate it; histogram sums cannot reveal
+        # whether negative-weight events contributed.
+        warnings.warn(
+            "Kish-Jeffreys intervals are approximate and assume nonnegative weights. "
+            "Negative genWeight contributions invalidate the binomial interpretation; "
+            "their presence cannot be determined from these histogram sums.",
+            RuntimeWarning,
+            stacklevel=2,
         )
 
     x_values = []
@@ -256,7 +280,7 @@ def efficiency_graph(
             error_high = np.nan
 
         else:
-            if (
+            if interval != "normal" and (
                 passed_value < 0.0
                 or passed_value > total_value
             ):
@@ -270,7 +294,37 @@ def efficiency_graph(
                 / total_value
             )
 
-            if interval == "clopper-pearson":
+            if interval == "kish-bayesian":
+                denominator_error = denominator.errors[index]
+                if not np.isfinite(denominator_error) or denominator_error <= 0.0:
+                    raise ValueError(
+                        f"Bin {index}: Kish intervals require a finite, positive sumw2 error."
+                    )
+
+                effective_total = (total_value / denominator_error) ** 2
+                if not np.isfinite(effective_total) or effective_total <= 0.0:
+                    raise ValueError(f"Bin {index}: invalid Kish effective sample size.")
+
+                effective_passed = efficiency * effective_total
+                effective_failed = (1.0 - efficiency) * effective_total
+                tail = (1.0 - confidence_level) / 2.0
+                lower = betaincinv(
+                    effective_passed + 0.5,
+                    effective_failed + 0.5,
+                    tail,
+                )
+                upper = betaincinv(
+                    effective_passed + 0.5,
+                    effective_failed + 0.5,
+                    1.0 - tail,
+                )
+                if not np.isfinite(lower) or not np.isfinite(upper):
+                    raise ValueError(f"Bin {index}: nonfinite Kish-Jeffreys bounds.")
+
+                error_low = efficiency - min(lower, efficiency)
+                error_high = max(upper, efficiency) - efficiency
+
+            elif interval == "clopper-pearson":
                 passed_integer = int(
                     round(passed_value)
                 )
@@ -706,7 +760,7 @@ def plot_efficiency(
     label="Efficiency",
     xlabel="",
     ylabel="Efficiency",
-    interval="clopper-pearson",
+    interval="kish-bayesian",
     confidence_level=0.682689492137,
     xlim=None,
     ylim=(0.0, 1.05),
