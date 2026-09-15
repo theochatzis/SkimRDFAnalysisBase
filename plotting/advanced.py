@@ -197,6 +197,7 @@ def efficiency_graph(
     *,
     confidence_level=0.682689492137,
     interval="kish-bayesian",
+    tolerance=1.0,
     include_x_errors=True,
     drop_empty=True,
     name="efficiency",
@@ -212,7 +213,9 @@ def efficiency_graph(
         Numerator and denominator must contain unweighted integer counts.
       * "normal": symmetric sqrt(e(1-e)/N) approximation.
 
-    Bins with denominator <= 0 are omitted when drop_empty=True.
+    Bins with denominator <= 0 are omitted when drop_empty=True. A positive
+    tolerance accepts numerator > denominator only when its propagated pull is
+    at most tolerance; the central value is then capped at one.
     """
     _check_same_binning([
         numerator,
@@ -223,6 +226,9 @@ def efficiency_graph(
 
     if not 0.0 < confidence_level < 1.0:
         raise ValueError("confidence_level must be between 0 and 1.")
+
+    if tolerance < 0.0:
+        raise ValueError("tolerance must be nonnegative.")
 
     if interval not in (
         "kish-bayesian",
@@ -280,14 +286,41 @@ def efficiency_graph(
             error_high = np.nan
 
         else:
-            if interval != "normal" and (
-                passed_value < 0.0
-                or passed_value > total_value
-            ):
+            if interval != "normal" and passed_value < 0.0:
                 raise ValueError(
                     "Efficiency numerator must satisfy "
                     "0 <= numerator <= denominator in every bin."
                 )
+
+            if interval != "normal" and passed_value > total_value:
+                if numerator.errors is None or denominator.errors is None:
+                    raise ValueError(
+                        "Tolerance requires numerator and denominator sumw2 errors."
+                    )
+
+                difference_error = np.hypot(
+                    numerator.errors[index],
+                    denominator.errors[index],
+                )
+                pull = (
+                    (passed_value - total_value) / difference_error
+                    if difference_error > 0.0
+                    else np.inf
+                )
+
+                if not np.isfinite(pull) or pull > tolerance:
+                    raise ValueError(
+                        "Efficiency numerator must satisfy "
+                        "0 <= numerator <= denominator in every bin."
+                    )
+
+                warnings.warn(
+                    f"[{name}] numerator > denominator by {pull:.2f}σ "
+                    f"(tolerance {tolerance:.2f}σ); setting efficiency to 1.0.",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+                passed_value = total_value
 
             efficiency = (
                 passed_value

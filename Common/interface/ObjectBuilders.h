@@ -188,7 +188,8 @@ inline RVec<Jet> selectJets(
 inline RVec<GenJet> selectGenJets(
     const RVec<GenJet>& jets,
     float minPt = 15.f,
-    float maxAbsEta = 5.f
+    float maxAbsEta = 5.f,
+    bool order = true
 ) {
     RVec<GenJet> out;
     out.reserve(jets.size());
@@ -197,6 +198,14 @@ inline RVec<GenJet> selectGenJets(
         if (std::abs(jet.eta()) >= maxAbsEta) continue;
         out.push_back(jet);
     }
+
+    if (order) {
+        std::sort(out.begin(), out.end(),
+                  [](const GenJet& a, const GenJet& b) {
+                      return a.pt() > b.pt();
+                  });
+    }
+
     return out;
 }
 

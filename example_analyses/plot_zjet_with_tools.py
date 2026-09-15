@@ -190,6 +190,16 @@ def main():
     )
 
     parser.add_argument(
+        "--efficiency-tolerance",
+        type=float,
+        default=1.0,
+        help=(
+            "Maximum propagated numerator-minus-denominator pull, in sigma, "
+            "accepted before capping an efficiency or purity at 1.0."
+        ),
+    )
+
+    parser.add_argument(
         "--region",
         default="zjet",
     )
@@ -363,6 +373,7 @@ def main():
                 name="eff_{}".format(
                     category
                 ),
+                tolerance=args.efficiency_tolerance,
             )
 
             purity_pt[category] = efficiency_graph(
@@ -383,6 +394,7 @@ def main():
                 name="purity_{}".format(
                     category
                 ),
+                tolerance=args.efficiency_tolerance,
             )
 
         plot_graphs(
@@ -437,6 +449,7 @@ def main():
                 name="eff_eta_{}".format(
                     category
                 ),
+                tolerance=args.efficiency_tolerance,
             )
 
             purity_eta[category] = efficiency_graph(
@@ -457,6 +470,7 @@ def main():
                 name="purity_eta_{}".format(
                     category
                 ),
+                tolerance=args.efficiency_tolerance,
             )
 
         plot_graphs(

@@ -318,6 +318,86 @@ def find_input_files(directory, pattern):
     return sorted(input_files)
 
 
+def _read_runs_sumw(input_file, tree_name, branch_name):
+    """Return a Runs-tree weight sum, or None if the source is unavailable."""
+    root_file = ROOT.TFile.Open(input_file)
+
+    if not root_file or root_file.IsZombie():
+        raise OSError(f"Could not open input ROOT file: {input_file}")
+
+    try:
+        runs = root_file.Get(tree_name)
+
+        if not runs or not runs.InheritsFrom("TTree"):
+            return None
+
+        if not runs.GetBranch(branch_name):
+            return None
+
+        return sum(float(getattr(entry, branch_name)) for entry in runs)
+    finally:
+        root_file.Close()
+
+
+def _read_histogram_sumw(input_file, histogram_name):
+    """Return a histogram weight sum, or None if the source is unavailable."""
+    root_file = ROOT.TFile.Open(input_file)
+
+    if not root_file or root_file.IsZombie():
+        raise OSError(f"Could not open input ROOT file: {input_file}")
+
+    try:
+        histogram = root_file.Get(histogram_name)
+
+        if not histogram or not histogram.InheritsFrom("TH1"):
+            return None
+
+        return float(histogram.GetSumOfWeights())
+    finally:
+        root_file.Close()
+
+
+def get_mc_normalization(input_files, runs_tree, runs_branch, histogram_name):
+    """Return 1 / sum(genEventSumw), preferring Runs over a histogram."""
+    runs_values = [
+        _read_runs_sumw(input_file, runs_tree, runs_branch)
+        for input_file in input_files
+    ]
+
+    if all(value is not None for value in runs_values):
+        source = f"{runs_tree}.{runs_branch}"
+        total_sumw = sum(runs_values)
+    else:
+        histogram_values = [
+            _read_histogram_sumw(input_file, histogram_name)
+            for input_file in input_files
+        ]
+
+        if not all(value is not None for value in histogram_values):
+            raise RuntimeError(
+                "MC normalization requires either "
+                f"'{runs_tree}.{runs_branch}' in every input file or "
+                f"histogram '{histogram_name}' in every input file."
+            )
+
+        source = f"histogram '{histogram_name}'"
+        total_sumw = sum(histogram_values)
+
+    if total_sumw == 0.0:
+        raise RuntimeError(
+            f"MC normalization from {source} is zero; cannot scale histograms."
+        )
+
+    return 1.0 / total_sumw, source, total_sumw
+
+
+def is_profile(histogram):
+    return (
+        histogram.InheritsFrom("TProfile")
+        or histogram.InheritsFrom("TProfile2D")
+    )
+
+
 # ============================================================
 # Region validation
 # ============================================================
@@ -392,6 +472,21 @@ def build_parser():
         "--tree-name",
         default="Events",
         help="Input TTree name"
+    )
+    parser.add_argument(
+        "--runs-tree-name",
+        default="Runs",
+        help="Runs TTree used for MC normalization"
+    )
+    parser.add_argument(
+        "--runs-sumw-branch",
+        default="genEventSumw",
+        help="Runs TTree branch containing the generated-event sum of weights"
+    )
+    parser.add_argument(
+        "--gen-event-weight-histogram",
+        default="GenEventWeight",
+        help="Fallback histogram used for MC normalization"
     )
     parser.add_argument(
         "--input-files-depth",
@@ -702,6 +797,20 @@ def main():
             sample
         )
 
+        if sample["is_mc"]:
+            normalization, source, total_sumw = get_mc_normalization(
+                input_files,
+                args.runs_tree_name,
+                args.runs_sumw_branch,
+                args.gen_event_weight_histogram,
+            )
+            sample["mc_normalization"] = normalization
+
+            print(
+                f"MC normalization: 1 / {total_sumw:g} "
+                f"(from {source})"
+            )
+
         print(
             "Sample type:",
             "MC" if sample["is_mc"] else "Data"
@@ -865,7 +974,16 @@ def main():
             else:
                 output.cd()
 
-            histogram.Write()
+            root_histogram = histogram.GetValue()
+
+            if (
+                sample["is_mc"]
+                and target_dir != "weights"
+                and not is_profile(root_histogram)
+            ):
+                root_histogram.Scale(sample["mc_normalization"])
+
+            root_histogram.Write()
 
         for region_name, report in reports.items():
             print(

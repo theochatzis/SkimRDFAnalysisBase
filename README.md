@@ -536,6 +536,24 @@ apply_to: mc
 is set to `1.0` for data, allowing the same histogram configuration to be used
 for both data and simulation.
 
+## MC normalization
+
+MC physics histograms are divided by the total generated-event weight across
+all input files. The runner first sums `Runs.genEventSumw`; if that is absent,
+it falls back to `GenEventWeight.GetSumOfWeights()`. It stops with an error if
+neither source is available in every input file, or if the total is zero.
+
+The defaults can be changed when needed:
+
+```bash
+python3 run_analysis.py ... \
+  --runs-tree-name Runs \
+  --runs-sumw-branch genEventSumw \
+  --gen-event-weight-histogram GenEventWeight
+```
+
+Weight-monitoring histograms and profile histograms are not scaled.
+
 ---
 
 # Common C++ helpers
@@ -557,4 +575,3 @@ Build the library with:
 ```bash
 bash setup.sh
 ```
-
