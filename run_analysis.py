@@ -94,6 +94,75 @@ def make_edges(spec):
     return np.asarray(spec, dtype=np.float64)
 
 
+def _book_profile(dataframe, hist_name, hist_info, columns, weight,
+                  dimensions):
+    """
+    Book a TProfile/TProfile2D with Sumw2 enabled before the event loop.
+
+    A profile only allocates its sum-of-squares-of-weights array on its first
+    weighted fill. RDataFrame merges one partial profile per thread, and when
+    the slot that acts as the merge target never received a weighted entry,
+    that array is dropped. The effective entry count then degenerates from
+    (sum w)^2 / sum w^2 to sum w, so with large event weights the errors on
+    the mean come out too small by roughly sqrt(<w>). Whether it happens
+    depends on how the entries fall across threads.
+
+    Allocating the array up front makes the merge lossless. It changes
+    nothing for unit weights, where (sum w)^2 / sum w^2 is already the entry
+    count, and it changes no bin contents.
+
+    Profile1D()/Profile2D() build the profile internally, so the object has
+    to be created here and filled through Fill() instead.
+
+    Histograms are kept out of the current directory throughout. Booking runs
+    while the output TFile is current and the same name is booked once per
+    region, so auto-attachment would leak objects into the file and emit
+    "Replacing existing TH1" warnings. Everything is written explicitly.
+    """
+    title = hist_info["title"]
+
+    if weight:
+        columns = list(columns) + [weight]
+
+    previous = ROOT.TH1.AddDirectoryStatus()
+    ROOT.TH1.AddDirectory(False)
+
+    try:
+        if dimensions == 1:
+            if "edges" in hist_info:
+                edges = make_edges(hist_info["edges"])
+                profile = ROOT.TProfile(
+                    hist_name, title, len(edges) - 1, edges
+                )
+            else:
+                bins = hist_info["bins"]
+                profile = ROOT.TProfile(
+                    hist_name, title, bins[0], bins[1], bins[2]
+                )
+        else:
+            if "edges_x" in hist_info and "edges_y" in hist_info:
+                edges_x = make_edges(hist_info["edges_x"])
+                edges_y = make_edges(hist_info["edges_y"])
+                profile = ROOT.TProfile2D(
+                    hist_name, title,
+                    len(edges_x) - 1, edges_x,
+                    len(edges_y) - 1, edges_y
+                )
+            else:
+                bins = hist_info["bins"]
+                profile = ROOT.TProfile2D(
+                    hist_name, title,
+                    bins[0], bins[1], bins[2],
+                    bins[3], bins[4], bins[5]
+                )
+
+        profile.Sumw2()
+
+        return dataframe.Fill(profile, list(columns))
+    finally:
+        ROOT.TH1.AddDirectory(previous)
+
+
 def _histogram_weight(hist_info, default_weight):
     """
     If a histogram explicitly contains `weight`, respect it.
@@ -108,151 +177,156 @@ def _histogram_weight(hist_info, default_weight):
     return default_weight
 
 
-def book_histograms(dataframe, config, default_weight=None):
-    """
-    Book all YAML-defined histograms.
+def _book_histogram(dataframe, hist_name, hist_info, weight):
+    """Book one YAML-defined histogram with the supplied name and weight."""
+    title = hist_info["title"]
+    hist_type = hist_info.get("type", "TH1D")
 
-    `default_weight` is normally the combined eventWeight column from
-    weights.yaml. A histogram-level `weight:` entry overrides it.
+    if hist_type == "TH1D":
+        variable = hist_info["variable"]
+        if "edges" in hist_info:
+            edges = make_edges(hist_info["edges"])
+            model = (hist_name, title, len(edges) - 1, edges)
+        else:
+            bins = hist_info["bins"]
+            model = (hist_name, title, bins[0], bins[1], bins[2])
+        return dataframe.Histo1D(model, variable, weight) if weight else dataframe.Histo1D(model, variable)
+
+    if hist_type in ("TProfile", "Profile1D"):
+        return _book_profile(
+            dataframe,
+            hist_name,
+            hist_info,
+            (hist_info["variable_x"], hist_info["variable_y"]),
+            weight,
+            dimensions=1,
+        )
+
+    if hist_type == "TH2D":
+        var_x = hist_info["variable_x"]
+        var_y = hist_info["variable_y"]
+        if "edges_x" in hist_info and "edges_y" in hist_info:
+            edges_x = make_edges(hist_info["edges_x"])
+            edges_y = make_edges(hist_info["edges_y"])
+            model = (hist_name, title, len(edges_x) - 1, edges_x, len(edges_y) - 1, edges_y)
+        else:
+            bins = hist_info["bins"]
+            model = (hist_name, title, bins[0], bins[1], bins[2], bins[3], bins[4], bins[5])
+        return dataframe.Histo2D(model, var_x, var_y, weight) if weight else dataframe.Histo2D(model, var_x, var_y)
+
+    if hist_type == "TH3D":
+        var_x = hist_info["variable_x"]
+        var_y = hist_info["variable_y"]
+        var_z = hist_info["variable_z"]
+        if "edges_x" in hist_info and "edges_y" in hist_info and "edges_z" in hist_info:
+            edges_x = make_edges(hist_info["edges_x"])
+            edges_y = make_edges(hist_info["edges_y"])
+            edges_z = make_edges(hist_info["edges_z"])
+            model = (hist_name, title, len(edges_x) - 1, edges_x, len(edges_y) - 1, edges_y, len(edges_z) - 1, edges_z)
+        else:
+            bins = hist_info["bins"]
+            model = (hist_name, title, bins[0], bins[1], bins[2], bins[3], bins[4], bins[5], bins[6], bins[7], bins[8])
+        return dataframe.Histo3D(model, var_x, var_y, var_z, weight) if weight else dataframe.Histo3D(model, var_x, var_y, var_z)
+
+    if hist_type in ("TProfile2D", "Profile2D"):
+        return _book_profile(
+            dataframe,
+            hist_name,
+            hist_info,
+            (
+                hist_info["variable_x"],
+                hist_info["variable_y"],
+                hist_info["variable_z"],
+            ),
+            weight,
+            dimensions=2,
+        )
+
+    print(f"WARNING: Unknown histogram type '{hist_type}' for '{hist_name}'. Skipping.")
+    return None
+
+
+def _reweighted_expression(nominal_weight, default_weight, target_weight):
+    """
+    Swap the event weight inside a histogram weight for another one.
+
+    A histogram weight is usually a category weight such as
+    `etaWeight_HB = passes_category ? eventWeight : 0`, so a variation cannot
+    simply replace it: the category selection has to survive. Rescaling by
+    target/eventWeight keeps the selection and swaps only the weight. When
+    the histogram weight *is* the event weight, the rescaling is skipped and
+    the target is used directly, which avoids a division that would turn a
+    zero event weight into a dropped event.
+    """
+    if nominal_weight == default_weight:
+        return target_weight
+
+    return (
+        f"({nominal_weight}) * ("
+        f"{default_weight} != 0.0 "
+        f"? ({target_weight}) / ({default_weight}) "
+        f": 0.0)"
+    )
+
+
+def book_histograms(dataframe, config, default_weight=None, weight_state=None, output_mode="legacy"):
+    """
+    Book histograms under the requested naming scheme.
+
+    legacy: one histogram per definition, under its own name.
+
+    all: the fully corrected histogram keeps the plain name, so the same
+    plotting code works against either mode. Alongside it,
+
+        <name>                     all weights, including every scale factor
+        <name>_unweighted          baseline weights only (the generator
+                                   weight), i.e. no scale factors
+        <name>_<source>_<up|down>  one scale factor varied, the rest nominal
     """
     pointers = []
 
-    for hist_name, hist_info in config.items():
-        title = hist_info["title"]
-        hist_type = hist_info.get("type", "TH1D")
-        weight = _histogram_weight(hist_info, default_weight)
+    state = weight_state or {}
+    variations = state.get("variations", {})
+    baseline_weight = state.get("baseline_weight")
 
-        if hist_type == "TH1D":
-            variable = hist_info["variable"]
+    for index, (hist_name, hist_info) in enumerate(config.items()):
+        nominal_weight = _histogram_weight(hist_info, default_weight)
 
-            if "edges" in hist_info:
-                edges = make_edges(hist_info["edges"])
-                model = (hist_name, title, len(edges) - 1, edges)
-            else:
-                bins = hist_info["bins"]
-                model = (hist_name, title, bins[0], bins[1], bins[2])
+        if output_mode == "legacy":
+            pointer = _book_histogram(dataframe, hist_name, hist_info, nominal_weight)
+            if pointer:
+                pointers.append(pointer)
+            continue
 
-            pointer = (
-                dataframe.Histo1D(model, variable, weight)
-                if weight
-                else dataframe.Histo1D(model, variable)
-            )
+        # The fully corrected histogram, under the plain name.
+        pointer = _book_histogram(dataframe, hist_name, hist_info, nominal_weight)
+        if pointer:
             pointers.append(pointer)
 
-        elif hist_type in ("TProfile", "Profile1D"):
-            var_x = hist_info["variable_x"]
-            var_y = hist_info["variable_y"]
+        if not nominal_weight or not default_weight:
+            # Nothing to vary: an unweighted histogram would duplicate the
+            # one just booked.
+            continue
 
-            if "edges" in hist_info:
-                edges = make_edges(hist_info["edges"])
-                model = (hist_name, title, len(edges) - 1, edges)
-            else:
-                bins = hist_info["bins"]
-                model = (hist_name, title, bins[0], bins[1], bins[2])
-
-            pointer = (
-                dataframe.Profile1D(model, var_x, var_y, weight)
-                if weight
-                else dataframe.Profile1D(model, var_x, var_y)
+        for label, varied_event_weight in variations.items():
+            varied_weight = f"__histWeight_{index}_{label}"
+            varied_df = dataframe.Define(
+                varied_weight,
+                _reweighted_expression(nominal_weight, default_weight, varied_event_weight),
             )
-            pointers.append(pointer)
+            pointer = _book_histogram(varied_df, f"{hist_name}_{label}", hist_info, varied_weight)
+            if pointer:
+                pointers.append(pointer)
 
-        elif hist_type == "TH2D":
-            var_x = hist_info["variable_x"]
-            var_y = hist_info["variable_y"]
-
-            if "edges_x" in hist_info and "edges_y" in hist_info:
-                edges_x = make_edges(hist_info["edges_x"])
-                edges_y = make_edges(hist_info["edges_y"])
-                model = (
-                    hist_name, title,
-                    len(edges_x) - 1, edges_x,
-                    len(edges_y) - 1, edges_y
-                )
-            else:
-                bins = hist_info["bins"]
-                model = (
-                    hist_name, title,
-                    bins[0], bins[1], bins[2],
-                    bins[3], bins[4], bins[5]
-                )
-
-            pointer = (
-                dataframe.Histo2D(model, var_x, var_y, weight)
-                if weight
-                else dataframe.Histo2D(model, var_x, var_y)
+        if baseline_weight:
+            unweighted = f"__histWeight_{index}_unweighted"
+            unweighted_df = dataframe.Define(
+                unweighted,
+                _reweighted_expression(nominal_weight, default_weight, baseline_weight),
             )
-            pointers.append(pointer)
-
-        elif hist_type == "TH3D":
-            var_x = hist_info["variable_x"]
-            var_y = hist_info["variable_y"]
-            var_z = hist_info["variable_z"]
-
-            if (
-                "edges_x" in hist_info
-                and "edges_y" in hist_info
-                and "edges_z" in hist_info
-            ):
-                edges_x = make_edges(hist_info["edges_x"])
-                edges_y = make_edges(hist_info["edges_y"])
-                edges_z = make_edges(hist_info["edges_z"])
-
-                model = (
-                    hist_name, title,
-                    len(edges_x) - 1, edges_x,
-                    len(edges_y) - 1, edges_y,
-                    len(edges_z) - 1, edges_z
-                )
-            else:
-                bins = hist_info["bins"]
-                model = (
-                    hist_name, title,
-                    bins[0], bins[1], bins[2],
-                    bins[3], bins[4], bins[5],
-                    bins[6], bins[7], bins[8]
-                )
-
-            pointer = (
-                dataframe.Histo3D(model, var_x, var_y, var_z, weight)
-                if weight
-                else dataframe.Histo3D(model, var_x, var_y, var_z)
-            )
-            pointers.append(pointer)
-
-        elif hist_type in ("TProfile2D", "Profile2D"):
-            var_x = hist_info["variable_x"]
-            var_y = hist_info["variable_y"]
-            var_z = hist_info["variable_z"]
-
-            if "edges_x" in hist_info and "edges_y" in hist_info:
-                edges_x = make_edges(hist_info["edges_x"])
-                edges_y = make_edges(hist_info["edges_y"])
-                model = (
-                    hist_name, title,
-                    len(edges_x) - 1, edges_x,
-                    len(edges_y) - 1, edges_y
-                )
-            else:
-                bins = hist_info["bins"]
-                model = (
-                    hist_name, title,
-                    bins[0], bins[1], bins[2],
-                    bins[3], bins[4], bins[5]
-                )
-
-            pointer = (
-                dataframe.Profile2D(model, var_x, var_y, var_z, weight)
-                if weight
-                else dataframe.Profile2D(model, var_x, var_y, var_z)
-            )
-            pointers.append(pointer)
-
-        else:
-            print(
-                f"WARNING: Unknown histogram type "
-                f"'{hist_type}' for '{hist_name}'. Skipping."
-            )
+            pointer = _book_histogram(unweighted_df, f"{hist_name}_unweighted", hist_info, unweighted)
+            if pointer:
+                pointers.append(pointer)
 
     return pointers
 
@@ -523,6 +597,12 @@ def build_parser():
         default="",
         help="Optional YAML file defining event weights and their variations"
     )
+    parser.add_argument(
+        "--histogram-weight-output",
+        choices=("legacy", "all"),
+        default="legacy",
+        help="Histogram naming: legacy plain names only, or additionally <name>_unweighted (baseline weights only) and <name>_<source>_<up|down>"
+    )
 
     parser.add_argument(
         "--output-dir",
@@ -681,6 +761,15 @@ def main():
         print(
             f"Loaded weight definitions: "
             f"{weights_path}"
+        )
+
+    if args.histogram_weight_output == "all" and not weights_config:
+        print(
+            "WARNING: --histogram-weight-output all was requested but no "
+            "--weights-defs was given, so no scale factors and no "
+            "variations exist. Only the nominal histograms will be "
+            "written; there is nothing to vary and nothing to strip for an "
+            "_unweighted comparison."
         )
 
     setup = getattr(
@@ -915,7 +1004,9 @@ def main():
             pointers = book_histograms(
                 df,
                 hist_config,
-                default_weight=default_hist_weight
+                default_weight=default_hist_weight,
+                weight_state=weight_state,
+                output_mode=args.histogram_weight_output
             )
 
             histogram_actions.extend(
@@ -956,7 +1047,9 @@ def main():
             pointers = book_histograms(
                 region_df,
                 hist_config,
-                default_weight=default_hist_weight
+                default_weight=default_hist_weight,
+                weight_state=weight_state,
+                output_mode=args.histogram_weight_output
             )
 
             histogram_actions.extend(

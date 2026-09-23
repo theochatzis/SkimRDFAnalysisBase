@@ -670,6 +670,8 @@ def apply_event_weights(dataframe, config, sample):
         return dataframe, {
             "enabled": False,
             "event_weight": None,
+            "baseline_weight": None,
+            "baseline": [],
             "configured": [],
             "active": [],
             "variations": {},
@@ -687,8 +689,22 @@ def apply_event_weights(dataframe, config, sample):
         for name in dataframe.GetColumnNames()
     }
 
+    # Weights marked `baseline: true` are the ones that are always applied -
+    # in practice the generator weight. They are what the "_unweighted"
+    # histograms keep, so that "unweighted" means "no scale factors" rather
+    # than "no weight at all", which for a negative-weight NLO sample would
+    # not even be a meaningful distribution.
+    baseline_names = [
+        name
+        for name, spec in weights.items()
+        if spec.get("baseline", False)
+    ]
+
+    baseline_weight = f"{event_weight}_baseline"
+
     reserved = {
-        event_weight
+        event_weight,
+        baseline_weight,
     }
 
     for name, spec in weights.items():
@@ -790,6 +806,11 @@ def apply_event_weights(dataframe, config, sample):
         " * ".join(names)
     )
 
+    dataframe = dataframe.Define(
+        baseline_weight,
+        " * ".join(baseline_names) if baseline_names else "1.0"
+    )
+
     combined_variations = {}
 
     for name, spec in weights.items():
@@ -833,11 +854,15 @@ def apply_event_weights(dataframe, config, sample):
         f"[weights:{sample.get('name', '<sample>')}] "
         f"active: "
         f"{', '.join(active) if active else 'none'}"
+        f" | baseline: "
+        f"{', '.join(baseline_names) if baseline_names else 'none'}"
     )
 
     return dataframe, {
         "enabled": True,
         "event_weight": event_weight,
+        "baseline_weight": baseline_weight,
+        "baseline": baseline_names,
         "configured": names,
         "active": active,
         "variations": combined_variations,
