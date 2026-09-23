@@ -145,13 +145,14 @@ public:
     Muon() = default;
 
     Muon(float pt, float eta, float phi, float mass,
-         int charge, bool mediumId, bool tightId,
+         int charge, bool looseId, bool mediumId, bool tightId,
          int pfIsoId, float pfRelIso04)
         : pt_(pt),
           eta_(eta),
           phi_(phi),
           mass_(mass),
           charge_(charge),
+          looseId_(looseId),
           mediumId_(mediumId),
           tightId_(tightId),
           pfIsoId_(pfIsoId),
@@ -170,25 +171,16 @@ public:
     }
 
     // Identification / isolation information
+    // Identification working points and isolation are left uninterpreted here.
+    // The selection that uses them lives in ObjectBuilders.h (MuonId,
+    // selectMuons, selectVetoMuons), so an analysis can change a working point
+    // without touching this class.
     int charge() const { return charge_; }
+    bool looseId() const { return looseId_; }
     bool mediumId() const { return mediumId_; }
     bool tightId() const { return tightId_; }
     int pfIsoId() const { return pfIsoId_; }
     float pfRelIso04() const { return pfRelIso04_; }
-
-    bool passZBaseline() const {
-        return pt_ > 10.f &&
-               std::abs(eta_) < 2.4f &&
-               mediumId_ &&
-               pfIsoId_ >= 2;
-    }
-
-    bool passZTag() const {
-        return pt_ > 27.f &&
-               std::abs(eta_) < 2.4f &&
-               tightId_ &&
-               pfIsoId_ >= 4;
-    }
 
 private:
     float pt_ = -1.f;
@@ -197,6 +189,7 @@ private:
     float mass_ = 0.105658f;
 
     int charge_ = 0;
+    bool looseId_ = false;
     bool mediumId_ = false;
     bool tightId_ = false;
     int pfIsoId_ = 0;
@@ -289,10 +282,6 @@ public:
 
     bool oppositeSign() const {
         return valid_ && (muon1_.charge() * muon2_.charge() < 0);
-    }
-
-    bool hasTag() const {
-        return valid_ && (muon1_.passZTag() || muon2_.passZTag());
     }
 
 private:

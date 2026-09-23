@@ -5,6 +5,7 @@
 #include "Kinematics.h"
 #include "ROOT/RVec.hxx"
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <limits>
@@ -59,6 +60,52 @@ inline RVec<int> matchGenToRecoFlags(
         }
     }
     return matched;
+}
+
+// -----------------------------------------------------------------------------
+// Index-based nearest-neighbour matching
+// -----------------------------------------------------------------------------
+//
+// For every element of `objects`, return the index of the closest element of
+// `candidates` within `maxDR`, or -1 when there is none.
+//
+// The pT thresholds of the two sides are expressed by the collections that are
+// passed in, not by extra arguments: matching gen jets above 15 GeV to reco
+// jets above 10 GeV simply means passing those two selected collections. This
+// keeps the helper usable for any pair of objects exposing eta()/phi()/pt().
+//
+template <typename TObject, typename TCandidate>
+inline RVec<int> matchIndices(
+    const RVec<TObject>& objects,
+    const RVec<TCandidate>& candidates,
+    float maxDR = 0.2f
+) {
+    RVec<int> indices(objects.size(), -1);
+    const double maxDR2 = static_cast<double>(maxDR) * maxDR;
+
+    for (std::size_t i = 0; i < objects.size(); ++i) {
+        double best = maxDR2;
+        for (std::size_t j = 0; j < candidates.size(); ++j) {
+            const double dr2 = deltaR2(
+                objects[i].eta(), objects[i].phi(),
+                candidates[j].eta(), candidates[j].phi()
+            );
+            if (dr2 < best) {
+                best = dr2;
+                indices[i] = static_cast<int>(j);
+            }
+        }
+    }
+    return indices;
+}
+
+// Matched/not-matched flags for the matchedObject*() helpers below.
+inline RVec<int> matchFlags(const RVec<int>& indices) {
+    RVec<int> flags(indices.size(), 0);
+    for (std::size_t i = 0; i < indices.size(); ++i) {
+        flags[i] = indices[i] >= 0 ? 1 : 0;
+    }
+    return flags;
 }
 
 template <typename TObject>
@@ -131,6 +178,41 @@ RVec<float> matchedObjectEta(
         if (!flags[i]) continue;
         if (objs[i].pt() < minPt || objs[i].pt() >= maxPt) continue;
         out.push_back(objs[i].eta());
+    }
+    return out;
+}
+
+// pT(match) / pT(object) for matched pairs.
+//
+// The kinematic window applies to the *object*, and the matched pairs are
+// visited in object order, so the result lines up element-by-element with
+// matchedObjectPt()/matchedObjectEta() called with the same window. That is
+// what makes <response> versus the object pT or eta bookable as a TProfile.
+template <typename TObject, typename TCandidate>
+inline RVec<float> matchedResponse(
+    const RVec<TObject>& objects,
+    const RVec<TCandidate>& candidates,
+    const RVec<int>& indices,
+    float minAbsEta = 0.f,
+    float maxAbsEta = 999.f,
+    float minPt = 0.f,
+    float maxPt = 1.e9f
+) {
+    RVec<float> out;
+    const std::size_t n = std::min(objects.size(), indices.size());
+
+    for (std::size_t i = 0; i < n; ++i) {
+        const int index = indices[i];
+        if (index < 0) continue;
+        if (static_cast<std::size_t>(index) >= candidates.size()) continue;
+        if (!inEtaRange(objects[i], minAbsEta, maxAbsEta)) continue;
+        if (objects[i].pt() < minPt || objects[i].pt() >= maxPt) continue;
+
+        out.push_back(
+            objects[i].pt() > 0.f
+                ? candidates[index].pt() / objects[i].pt()
+                : 0.f
+        );
     }
     return out;
 }
