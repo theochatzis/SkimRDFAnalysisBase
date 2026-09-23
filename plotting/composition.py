@@ -13,10 +13,15 @@ from matplotlib.lines import Line2D
 
 from .objects import ratio_with_uncertainty
 from .plotters import (
+    CMS_LABEL_FONTSIZE,
+    SCI_DIGITS,
     use_hep_style,
     save_figure,
     draw_cms_label,
     auto_range,
+    apply_axis_style,
+    apply_figure_margins,
+    style_legend_patches,
     _step_band,
     _mc_ratio_band,
 )
@@ -104,6 +109,9 @@ def plot_fraction_composition_data_mc(
     ratio_padding=0.12,
     mc_ratio_uncertainty_band=False,
     mc_ratio_band_alpha=0.18,
+    sci_digits=SCI_DIGITS,
+    log_minor_labels=True,
+    cms_label_fontsize=CMS_LABEL_FONTSIZE,
 ):
     """
     CMS-style fraction-composition plot.
@@ -580,19 +588,21 @@ def plot_fraction_composition_data_mc(
         ),
     ]
 
-    side_ax.legend(
-        handles=(
-            component_handles
-            + style_handles
-        ),
-        loc="upper left",
-        bbox_to_anchor=(
-            0.02,
-            0.98,
-        ),
-        borderaxespad=0.0,
-        frameon=False,
-        fontsize=legend_fontsize,
+    style_legend_patches(
+        side_ax.legend(
+            handles=(
+                component_handles
+                + style_handles
+            ),
+            loc="upper left",
+            bbox_to_anchor=(
+                0.02,
+                0.98,
+            ),
+            borderaxespad=0.0,
+            frameon=False,
+            fontsize=legend_fontsize,
+        )
     )
 
     side_lines = []
@@ -620,20 +630,27 @@ def plot_fraction_composition_data_mc(
             fontsize="small",
         )
 
+    apply_axis_style(
+        ax,
+        sci_digits=sci_digits,
+        log_minor_labels=False,
+    )
+    apply_axis_style(
+        rax,
+        sci_digits=None,
+        log_minor_labels=log_minor_labels,
+    )
+
     draw_cms_label(
         ax,
         cms_label=cms_label,
         lumi=lumi,
         com=com,
         data=True,
+        fontsize=cms_label_fontsize,
     )
 
-    fig.subplots_adjust(
-        left=0.11,
-        right=0.98,
-        bottom=0.12,
-        top=0.94,
-    )
+    apply_figure_margins(fig)
 
     save_figure(
         fig,

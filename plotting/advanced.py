@@ -9,8 +9,16 @@ from .objects import (
     ratio_with_uncertainty,
 )
 from .plotters import (
+    CMS_LABEL_FONTSIZE,
+    SCI_DIGITS,
+    SIDE_PANEL_FIGSIZE,
+    SIDE_PANEL_MARGINS,
+    SIDE_PANEL_WIDTH,
     _mc_ratio_band,
     _step_band,
+    apply_axis_style,
+    apply_figure_margins,
+    style_legend_patches,
     draw_cms_label,
     ratio_axes,
     save_figure,
@@ -214,8 +222,13 @@ def efficiency_graph(
       * "normal": symmetric sqrt(e(1-e)/N) approximation.
 
     Bins with denominator <= 0 are omitted when drop_empty=True. A positive
-    tolerance accepts numerator > denominator only when its propagated pull is
-    at most tolerance; the central value is then capped at one.
+    tolerance applies symmetrically to both bounds, so that the bin-by-bin
+    sum-of-weights fluctuations of a sample with negative generator weights are
+    not mistaken for an error. A numerator above the denominator is accepted
+    when its propagated pull is at most tolerance, and the central value is then
+    capped at one; a numerator below zero is accepted when it lies within
+    tolerance of zero in units of its own sumw2 error, and the central value is
+    then floored at zero. Violations beyond tolerance still raise.
     """
     _check_same_binning([
         numerator,
@@ -287,10 +300,32 @@ def efficiency_graph(
 
         else:
             if interval != "normal" and passed_value < 0.0:
-                raise ValueError(
-                    "Efficiency numerator must satisfy "
-                    "0 <= numerator <= denominator in every bin."
+                if numerator.errors is None:
+                    raise ValueError(
+                        "Tolerance requires numerator sumw2 errors."
+                    )
+
+                numerator_error = numerator.errors[index]
+                pull = (
+                    abs(passed_value) / numerator_error
+                    if numerator_error > 0.0
+                    else np.inf
                 )
+
+                if not np.isfinite(pull) or pull > tolerance:
+                    raise ValueError(
+                        f"Bin {index}: efficiency numerator is negative "
+                        f"({passed_value:.6g}) by {pull:.2f}σ, above the "
+                        f"tolerance of {tolerance:.2f}σ."
+                    )
+
+                warnings.warn(
+                    f"[{name}] numerator < 0 by {pull:.2f}σ "
+                    f"(tolerance {tolerance:.2f}σ); setting efficiency to 0.0.",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+                passed_value = 0.0
 
             if interval != "normal" and passed_value > total_value:
                 if numerator.errors is None or denominator.errors is None:
@@ -310,8 +345,10 @@ def efficiency_graph(
 
                 if not np.isfinite(pull) or pull > tolerance:
                     raise ValueError(
-                        "Efficiency numerator must satisfy "
-                        "0 <= numerator <= denominator in every bin."
+                        f"Bin {index}: efficiency numerator ({passed_value:.6g}) "
+                        f"exceeds the denominator ({total_value:.6g}) by "
+                        f"{pull:.2f}σ, above the tolerance of "
+                        f"{tolerance:.2f}σ."
                     )
 
                 warnings.warn(
@@ -511,6 +548,10 @@ def plot_graphs(
     com=13.6,
     data=False,
     title=None,
+    title_fontsize="small",
+    sci_digits=SCI_DIGITS,
+    log_minor_labels=True,
+    cms_label_fontsize=CMS_LABEL_FONTSIZE,
 ):
     """
     Generic Graph1D plotter.
@@ -531,7 +572,7 @@ def plot_graphs(
 
     if legend_outside:
         fig = plt.figure(
-            figsize=(10.8, 7.2)
+            figsize=SIDE_PANEL_FIGSIZE
         )
 
         gs = fig.add_gridspec(
@@ -539,7 +580,7 @@ def plot_graphs(
             2,
             width_ratios=[
                 1.0,
-                0.38,
+                SIDE_PANEL_WIDTH,
             ],
             wspace=0.04,
         )
@@ -559,6 +600,7 @@ def plot_graphs(
         )
         side_ax = None
 
+    plotted_x = []
     plotted_y = []
     plotted_low = []
     plotted_high = []
@@ -618,6 +660,10 @@ def plot_graphs(
             markersize=4,
             linewidth=1.5,
             label=label,
+        )
+
+        plotted_x.append(
+            x
         )
 
         plotted_y.append(
@@ -703,6 +749,19 @@ def plot_graphs(
             "log"
         )
 
+        if xlim is None and plotted_x:
+            positive = np.concatenate(plotted_x)
+            positive = positive[positive > 0.0]
+
+            if positive.size:
+                # Autoscaling would otherwise follow the lower error bar of
+                # the first bin down towards zero, stranding the data in the
+                # right-hand half of a needlessly wide axis.
+                ax.set_xlim(
+                    0.8 * positive.min(),
+                    1.25 * positive.max(),
+                )
+
     if logy:
         ax.set_yscale(
             "log"
@@ -726,7 +785,7 @@ def plot_graphs(
             transform=ax.transAxes,
             ha="left",
             va="top",
-            fontsize="small",
+            fontsize=title_fontsize,
         )
 
     if legend_outside:
@@ -734,17 +793,19 @@ def plot_graphs(
             ax.get_legend_handles_labels()
         )
 
-        side_ax.legend(
-            handles,
-            legend_labels,
-            loc="upper left",
-            bbox_to_anchor=(
-                0.02,
-                0.98,
-            ),
-            borderaxespad=0.0,
-            frameon=False,
-            fontsize=legend_fontsize,
+        style_legend_patches(
+            side_ax.legend(
+                handles,
+                legend_labels,
+                loc="upper left",
+                bbox_to_anchor=(
+                    0.02,
+                    0.98,
+                ),
+                borderaxespad=0.0,
+                frameon=False,
+                fontsize=legend_fontsize,
+            )
         )
 
         if side_text:
@@ -759,10 +820,18 @@ def plot_graphs(
             )
 
     else:
-        ax.legend(
-            frameon=False,
-            fontsize=legend_fontsize,
+        style_legend_patches(
+            ax.legend(
+                frameon=False,
+                fontsize=legend_fontsize,
+            )
         )
+
+    apply_axis_style(
+        ax,
+        sci_digits=sci_digits,
+        log_minor_labels=log_minor_labels,
+    )
 
     draw_cms_label(
         ax,
@@ -770,13 +839,12 @@ def plot_graphs(
         lumi=lumi,
         com=com,
         data=data,
+        fontsize=cms_label_fontsize,
     )
 
-    fig.subplots_adjust(
-        left=0.13,
-        right=0.98,
-        bottom=0.12,
-        top=0.94,
+    apply_figure_margins(
+        fig,
+        SIDE_PANEL_MARGINS if legend_outside else None,
     )
 
     save_figure(
@@ -860,6 +928,9 @@ def plot_hist1d_data_mc_stack(
     lumi=None,
     com=13.6,
     title=None,
+    sci_digits=SCI_DIGITS,
+    log_minor_labels=True,
+    cms_label_fontsize=CMS_LABEL_FONTSIZE,
 ):
     """
     Data versus a stack of MC process Hist1D objects.
@@ -972,12 +1043,12 @@ def plot_hist1d_data_mc_stack(
 
     fig, ax, rax, side_ax = ratio_axes(
         figsize=(
-            (10.8, 7.6)
+            (SIDE_PANEL_FIGSIZE[0], 7.6)
             if legend_outside
             else (8.2, 7.6)
         ),
         side_panel=legend_outside,
-        side_width=0.42,
+        side_width=SIDE_PANEL_WIDTH,
     )
 
     edges = data.edges
@@ -1274,17 +1345,19 @@ def plot_hist1d_data_mc_stack(
             ax.get_legend_handles_labels()
         )
 
-        side_ax.legend(
-            handles,
-            legend_labels,
-            loc="upper left",
-            bbox_to_anchor=(
-                0.02,
-                0.98,
-            ),
-            borderaxespad=0.0,
-            frameon=False,
-            fontsize=legend_fontsize,
+        style_legend_patches(
+            side_ax.legend(
+                handles,
+                legend_labels,
+                loc="upper left",
+                bbox_to_anchor=(
+                    0.02,
+                    0.98,
+                ),
+                borderaxespad=0.0,
+                frameon=False,
+                fontsize=legend_fontsize,
+            )
         )
 
         if side_text:
@@ -1299,10 +1372,23 @@ def plot_hist1d_data_mc_stack(
             )
 
     else:
-        ax.legend(
-            frameon=False,
-            fontsize=legend_fontsize,
+        style_legend_patches(
+            ax.legend(
+                frameon=False,
+                fontsize=legend_fontsize,
+            )
         )
+
+    apply_axis_style(
+        ax,
+        sci_digits=sci_digits,
+        log_minor_labels=False,
+    )
+    apply_axis_style(
+        rax,
+        sci_digits=None,
+        log_minor_labels=log_minor_labels,
+    )
 
     draw_cms_label(
         ax,
@@ -1310,13 +1396,12 @@ def plot_hist1d_data_mc_stack(
         lumi=lumi,
         com=com,
         data=True,
+        fontsize=cms_label_fontsize,
     )
 
-    fig.subplots_adjust(
-        left=0.13,
-        right=0.98,
-        bottom=0.12,
-        top=0.94,
+    apply_figure_margins(
+        fig,
+        SIDE_PANEL_MARGINS if legend_outside else None,
     )
 
     save_figure(

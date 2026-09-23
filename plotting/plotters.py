@@ -6,13 +6,92 @@ from .runtime import configure_matplotlib_runtime
 
 configure_matplotlib_runtime()
 
+import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
+import matplotlib.ticker as mticker
 import mplhep as hep
 
 from .objects import Hist1D, ratio_with_uncertainty
 
 
 _STYLE_INITIALIZED = False
+
+
+# ----------------------------------------------------------------------
+# Shared style defaults
+#
+# Every plotting entry point in this package applies these, and each one can
+# be overridden per call. They exist because the mplhep CMS style is sized
+# for a single full-page figure, which is not what a few hundred small PNGs
+# want.
+# ----------------------------------------------------------------------
+
+# "CMS Preliminary ... (13.6 TeV)" header. The mplhep default overruns the
+# axes width once the experiment label carries a suffix such as "Simulation".
+CMS_LABEL_FONTSIZE = 16
+
+# Tick labels switch to scientific notation once they would need more than
+# this many integer digits. Without it a five-digit count such as 15000 makes
+# the tick labels wide enough to push the axis label off the canvas.
+SCI_DIGITS = 3
+
+# Where the "x 10^n" factor of a scientific y axis is drawn, in axes
+# coordinates. Just outside the left spine and just above the top one: the
+# CMS label starts at x = 0, so a right-aligned string at a slightly negative
+# x lands in the margin above the tick labels without touching it.
+SCI_EXPONENT_POSITION = (-0.01, 1.01)
+
+# Decade subdivisions that get a label on a log axis, so the eye has
+# something between the powers of ten: 20, 50, 200, 500, ... Adding 3 as well
+# is tempting but the labels start touching in the compressed decades of a
+# wide axis, so two per decade is the readable default.
+LOG_MINOR_SUBS = (2.0, 5.0)
+
+# Subdivisions that get a tick *mark*. Every one of them, labelled or not:
+# the marks are what makes a log axis readable between the decades, and
+# leaving out 3, 4, 6, 7, 8, 9 turns the axis into a handful of unrelated
+# stops. Only LOG_MINOR_SUBS of these are given a label.
+LOG_MINOR_TICK_SUBS = (
+    2.0,
+    3.0,
+    4.0,
+    5.0,
+    6.0,
+    7.0,
+    8.0,
+    9.0,
+)
+
+# Extra figure width and side-column share used when the legend is moved out
+# of the axes. The defaults have to fit a label such as
+# "$150 < p_{T}^{Z} < 300$ GeV" without clipping.
+# 0.52 of a 12.4 in figure leaves the main axes at 8.2 in, exactly the width
+# it has when the legend sits inside, so the two layouts stay comparable.
+SIDE_PANEL_WIDTH = 0.52
+SIDE_PANEL_FIGSIZE = (12.4, 7.2)
+
+# With a side panel the legend is meant to reach the figure edge, so the
+# right margin is nearly zero.
+SIDE_PANEL_MARGINS = {"right": 0.995}
+
+# Plain numbers stay readable up to this many decades; beyond it the major
+# ticks fall back to 10^n.
+LOG_PLAIN_DECADES = 4
+
+# Filled legend swatches - stack components, uncertainty bands - are drawn
+# without an edge, which leaves a pale fill with no boundary against the
+# white background. Outline them.
+LEGEND_PATCH_EDGECOLOR = "black"
+LEGEND_PATCH_LINEWIDTH = 0.8
+
+# Figure margins. The left margin has to clear the y-axis label *and* its
+# tick labels at CMS font sizes.
+FIGURE_MARGINS = {
+    "left": 0.16,
+    "right": 0.97,
+    "bottom": 0.13,
+    "top": 0.93,
+}
 
 
 def use_hep_style():
@@ -23,6 +102,391 @@ def use_hep_style():
 
     hep.style.use("CMS")
     _STYLE_INITIALIZED = True
+
+
+def style_legend_patches(
+    legend,
+    *,
+    edgecolor=LEGEND_PATCH_EDGECOLOR,
+    linewidth=LEGEND_PATCH_LINEWIDTH,
+    enabled=True,
+):
+    """
+    Outline the filled swatches in a legend.
+
+    Stack components and uncertainty bands are drawn without an edge, so in
+    the legend a pale fill has no boundary against the white background.
+    Only Patch handles are touched, which leaves errorbar and line handles
+    (data points, reference lines) exactly as they were.
+    """
+    if legend is None or not enabled or not edgecolor:
+        return legend
+
+    # Renamed in matplotlib 3.7; keep working on either.
+    handles = getattr(
+        legend,
+        "legend_handles",
+        None,
+    )
+
+    if handles is None:
+        handles = getattr(
+            legend,
+            "legendHandles",
+            (),
+        )
+
+    for handle in handles:
+        if isinstance(handle, mpatches.Patch):
+            handle.set_edgecolor(edgecolor)
+            handle.set_linewidth(linewidth)
+
+    return legend
+
+
+def apply_figure_margins(fig, margins=None):
+    """Apply the shared margins, optionally overriding individual sides."""
+    values = dict(FIGURE_MARGINS)
+
+    if margins:
+        values.update(margins)
+
+    fig.subplots_adjust(**values)
+
+
+def _plain_tick(value, _position=None):
+    """Tick label without exponent notation: 20, 50, 200, 2000."""
+    return "{:g}".format(value)
+
+
+def _axis_of(ax, which):
+    return ax.xaxis if which == "x" else ax.yaxis
+
+
+def _major_label_size(ax, which):
+    """
+    Point size the major tick labels of this axis are actually drawn at.
+
+    Read from a tick rather than from rcParams so that an axis whose major
+    labels were resized by the caller still reports the size in effect.
+    """
+    axis = _axis_of(ax, which)
+
+    for tick in axis.get_major_ticks():
+        return tick.label1.get_fontsize()
+
+    return plt.rcParams[
+        "{}tick.labelsize".format(which)
+    ]
+
+
+def _log_minor_tick(subs):
+    """
+    Formatter that labels only the listed subdivisions of each decade.
+
+    The minor locator puts a mark on every subdivision; this decides which of
+    those marks also carry a number. It works from the mantissa rather than
+    from the value, so a single formatter stays valid across every decade of
+    the axis: 0.2, 2, 20 and 200 are labelled, 3 and 300 never are.
+    """
+
+    def formatter(value, _position=None):
+        if value <= 0.0:
+            return ""
+
+        mantissa = value / 10.0 ** np.floor(
+            np.log10(value)
+        )
+
+        for sub in subs:
+            if abs(mantissa - sub) < 1e-6 * sub:
+                return _plain_tick(value)
+
+        return ""
+
+    return formatter
+
+
+def _matching_minor_pad(ax, which):
+    """
+    Base pad that puts the minor tick labels as far from the spine as the
+    major ones.
+
+    A tick label sits at `get_pad() + get_tick_padding()` from the spine, and
+    the CMS style gives the two sets of ticks different pads - 6.0 against 3.4
+    on x - so left alone the subdivision labels creep towards the axis while
+    the decade labels stay put. Returns None when the axis has no ticks to
+    measure yet.
+    """
+    axis = _axis_of(ax, which)
+
+    major = axis.get_major_ticks()
+    minor = axis.get_minor_ticks()
+
+    if not major or not minor:
+        return None
+
+    return (
+        major[0].get_pad()
+        + major[0].get_tick_padding()
+        - minor[0].get_tick_padding()
+    )
+
+
+def _scale_of(ax, which):
+    return (
+        ax.get_xscale()
+        if which == "x"
+        else ax.get_yscale()
+    )
+
+
+def _plain_digits(value):
+    """Digit characters in the plain rendering of a tick value."""
+    return sum(
+        character.isdigit()
+        for character in "{:g}".format(value)
+    )
+
+
+def _widest_plain_tick(axis, low, high):
+    """
+    Digits in the widest plain tick label the axis would draw.
+
+    Only the ticks inside the view interval count: the locator happily
+    returns ticks beyond both ends, and a label that is never drawn should
+    not decide the notation for the ones that are.
+    """
+    lower, upper = sorted((low, high))
+
+    widest = 0
+
+    for value in axis.get_majorticklocs():
+        if not (lower <= value <= upper):
+            continue
+        widest = max(
+            widest,
+            _plain_digits(value),
+        )
+
+    return widest
+
+
+def apply_scientific_ticks(
+    ax,
+    which="y",
+    *,
+    digits=SCI_DIGITS,
+    enabled=True,
+):
+    """
+    Use scientific notation once a tick label would need more than `digits`
+    digits, so that neither a large count nor a small fraction widens the
+    margin indefinitely.
+
+    Silently does nothing on a log axis, where the formatter does not apply.
+    """
+    if not enabled or digits is None:
+        return
+
+    if _scale_of(ax, which) != "linear":
+        return
+
+    low, high = (
+        ax.get_xlim()
+        if which == "x"
+        else ax.get_ylim()
+    )
+
+    largest = max(
+        abs(low),
+        abs(high),
+    )
+
+    if not np.isfinite(largest) or largest <= 0.0:
+        return
+
+    order = int(
+        np.floor(
+            np.log10(largest)
+        )
+    )
+
+    axis = _axis_of(ax, which)
+
+    # Two independent reasons to switch notation.
+    #
+    # The order of magnitude bounds the integer digits: with digits=3, 999
+    # stays as it is and 1000 becomes 1.0 x 10^3. It also catches a range so
+    # small that "{:g}" would itself fall back to exponent form, where
+    # counting digits in the rendering no longer measures the width.
+    too_many_orders = not (-digits <= order <= digits - 1)
+
+    # Below 1 the order says nothing about the width, because the digits are
+    # decimal places rather than integer ones: an axis topping out at 0.002
+    # has order -3 yet labels its ticks 0.00025, which is six digits. So ask
+    # the ticks themselves how wide they would print.
+    too_many_digits = (
+        _widest_plain_tick(axis, low, high) > digits
+    )
+
+    if not (too_many_orders or too_many_digits):
+        return
+
+    factor = 10.0 ** order
+
+    axis.set_major_formatter(
+        mticker.FuncFormatter(
+            lambda value, _position: "{:g}".format(
+                value / factor
+            )
+        )
+    )
+
+    exponent = r"$\times 10^{{{}}}$".format(order)
+
+    if which == "y":
+        # Above the top of the y axis, right-aligned just outside the frame,
+        # so it sits over the tick-label column and clears the CMS label that
+        # starts at the left spine. Not matplotlib's own offset text, which is
+        # drawn inside that corner and collides with it.
+        ax.text(
+            SCI_EXPONENT_POSITION[0],
+            SCI_EXPONENT_POSITION[1],
+            exponent,
+            transform=ax.transAxes,
+            ha="right",
+            va="bottom",
+            fontsize=_major_label_size(ax, which),
+        )
+        return
+
+    # On x there is no corner to put it in, so it stays in the axis label.
+    label = axis.get_label().get_text()
+
+    axis.set_label_text(
+        "{} {}".format(label, exponent).strip()
+    )
+
+
+def apply_log_minor_ticks(
+    ax,
+    which="x",
+    *,
+    subs=LOG_MINOR_SUBS,
+    tick_subs=LOG_MINOR_TICK_SUBS,
+    enabled=True,
+    labelsize=None,
+):
+    """
+    Draw every subdivision inside each decade of a log axis and label a few.
+
+    Over a narrow range the major ticks become plain numbers too, because
+    "100, 1000" reads better than "10^2, 10^3"; over a wide range the powers
+    of ten are kept.
+
+    Every sub in `tick_subs` gets a tick mark; only those in `subs` get a
+    number under it.
+
+    The subdivision labels are ordinary axis labels, not annotations, so by
+    default they are drawn at the same size as the decade labels, and at the
+    same distance from the spine: an axis reading "2 5 10 20 50 100" should
+    not change type size or drift towards the frame halfway along. Pass
+    `labelsize` explicitly to override the size.
+    """
+    if not enabled or not tick_subs:
+        return
+
+    if _scale_of(ax, which) != "log":
+        return
+
+    axis = _axis_of(ax, which)
+
+    low, high = (
+        ax.get_xlim()
+        if which == "x"
+        else ax.get_ylim()
+    )
+
+    if not (low > 0.0 and high > low):
+        return
+
+    decades = np.log10(high / low)
+
+    axis.set_major_locator(
+        mticker.LogLocator(base=10.0),
+    )
+
+    if decades <= LOG_PLAIN_DECADES:
+        axis.set_major_formatter(
+            mticker.FuncFormatter(_plain_tick),
+        )
+    else:
+        axis.set_major_formatter(
+            mticker.LogFormatterSciNotation(base=10.0),
+        )
+
+    # Mark every subdivision, label only the ones asked for. The two are
+    # separate on purpose: a log axis that jumps 10, 20, 50, 100 with nothing
+    # drawn in between reads as a linear axis with odd spacing.
+    axis.set_minor_locator(
+        mticker.LogLocator(
+            base=10.0,
+            subs=tick_subs,
+            numticks=100,
+        ),
+    )
+
+    axis.set_minor_formatter(
+        mticker.FuncFormatter(
+            _log_minor_tick(subs),
+        ),
+    )
+
+    # Resolve after the major formatter and locator are in place, so the size
+    # comes from the ticks this axis will actually draw.
+    if labelsize is None:
+        labelsize = _major_label_size(ax, which)
+
+    params = {"labelsize": labelsize}
+
+    pad = _matching_minor_pad(ax, which)
+
+    if pad is not None:
+        params["pad"] = pad
+
+    ax.tick_params(
+        axis=which,
+        which="minor",
+        **params,
+    )
+
+
+def apply_axis_style(
+    ax,
+    *,
+    sci_digits=SCI_DIGITS,
+    log_minor_labels=True,
+    sci_axis="y",
+    log_axis="x",
+):
+    """
+    The shared tick styling, applied after the scales and limits are set.
+
+    Call this on whichever axes actually shows the labels: for a main+ratio
+    layout that is the ratio panel for x and the main panel for y.
+    """
+    apply_scientific_ticks(
+        ax,
+        sci_axis,
+        digits=sci_digits,
+    )
+
+    apply_log_minor_ticks(
+        ax,
+        log_axis,
+        enabled=log_minor_labels,
+    )
 
 
 def save_figure(fig, output, dpi=150):
@@ -63,6 +527,7 @@ def draw_cms_label(
     lumi=None,
     com=13.6,
     data=True,
+    fontsize=CMS_LABEL_FONTSIZE,
 ):
     hep.cms.label(
         cms_label,
@@ -70,6 +535,7 @@ def draw_cms_label(
         lumi=lumi,
         com=com,
         ax=ax,
+        fontsize=fontsize,
     )
 
 
@@ -701,6 +1167,9 @@ def plot_hist1d_methods_data_mc(
     lumi=None,
     com=13.6,
     title=None,
+    sci_digits=SCI_DIGITS,
+    log_minor_labels=True,
+    cms_label_fontsize=CMS_LABEL_FONTSIZE,
 ):
     """
     Compare multiple methods.
@@ -734,12 +1203,12 @@ def plot_hist1d_methods_data_mc(
 
     fig, ax, rax, side_ax = ratio_axes(
         figsize=(
-            (10.8, 7.6)
+            (SIDE_PANEL_FIGSIZE[0], 7.6)
             if legend_outside
             else (8.2, 7.6)
         ),
         side_panel=legend_outside,
-        side_width=0.42,
+        side_width=SIDE_PANEL_WIDTH,
     )
 
     colors = (
@@ -1127,18 +1596,20 @@ def plot_hist1d_methods_data_mc(
             ax.get_legend_handles_labels()
         )
 
-        side_ax.legend(
-            handles,
-            legend_labels,
-            loc="upper left",
-            bbox_to_anchor=(
-                0.02,
-                0.98,
-            ),
-            borderaxespad=0.0,
-            frameon=False,
-            fontsize=legend_fontsize,
-            ncol=1,
+        style_legend_patches(
+            side_ax.legend(
+                handles,
+                legend_labels,
+                loc="upper left",
+                bbox_to_anchor=(
+                    0.02,
+                    0.98,
+                ),
+                borderaxespad=0.0,
+                frameon=False,
+                fontsize=legend_fontsize,
+                ncol=1,
+            )
         )
 
         if side_text:
@@ -1153,21 +1624,36 @@ def plot_hist1d_methods_data_mc(
             )
 
     else:
-        ax.legend(
-            ncol=2,
-            fontsize=legend_fontsize,
-            frameon=False,
+        style_legend_patches(
+            ax.legend(
+                ncol=2,
+                fontsize=legend_fontsize,
+                frameon=False,
+            )
         )
 
     if ratio_legend:
-        rax.legend(
-            ncol=max(
-                1,
-                len(keys),
-            ),
-            fontsize=legend_fontsize,
-            frameon=False,
+        style_legend_patches(
+            rax.legend(
+                ncol=max(
+                    1,
+                    len(keys),
+                ),
+                fontsize=legend_fontsize,
+                frameon=False,
+            )
         )
+
+    apply_axis_style(
+        ax,
+        sci_digits=sci_digits,
+        log_minor_labels=False,
+    )
+    apply_axis_style(
+        rax,
+        sci_digits=None,
+        log_minor_labels=log_minor_labels,
+    )
 
     draw_cms_label(
         ax,
@@ -1175,13 +1661,12 @@ def plot_hist1d_methods_data_mc(
         lumi=lumi,
         com=com,
         data=True,
+        fontsize=cms_label_fontsize,
     )
 
-    fig.subplots_adjust(
-        left=0.13,
-        right=0.98,
-        bottom=0.12,
-        top=0.94,
+    apply_figure_margins(
+        fig,
+        SIDE_PANEL_MARGINS if legend_outside else None,
     )
 
     save_figure(
@@ -1212,6 +1697,9 @@ def plot_hist1d_data_mc(
     lumi=None,
     com=13.6,
     title=None,
+    sci_digits=SCI_DIGITS,
+    log_minor_labels=True,
+    cms_label_fontsize=CMS_LABEL_FONTSIZE,
 ):
     from collections import OrderedDict
 
@@ -1249,4 +1737,7 @@ def plot_hist1d_data_mc(
         lumi=lumi,
         com=com,
         title=title,
+        sci_digits=sci_digits,
+        log_minor_labels=log_minor_labels,
+        cms_label_fontsize=cms_label_fontsize,
     )
