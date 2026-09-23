@@ -467,6 +467,18 @@ distribution itself.
 When a weights configuration is active, normal physics histograms use the
 combined `eventWeight` automatically.
 
+To additionally write unweighted, nominal, and one-at-a-time SF-varied
+histograms, use:
+
+```bash
+python3 run_analysis.py ... --histogram-weight-output all
+```
+
+For `Jet_pt`, this writes `Jet_pt_unweighted`, `Jet_pt_nominal`, and—for each
+configured source with variations—`Jet_pt_<source>_up` and
+`Jet_pt_<source>_down`. Custom histogram weights are varied by the corresponding
+combined event-weight ratio.
+
 ```yaml
 Jet_pt:
   title: "Jet pT;Jet pT;Events"
@@ -493,6 +505,25 @@ Jet_pt_puUp:
   bins: [100, 0, 500]
   weight: eventWeight_puWeight_up
 ```
+
+## Weighted profile errors
+
+`TProfile` and `TProfile2D` are booked through `Fill()` on an object whose
+`Sumw2()` has already been called, rather than through `Profile1D()` /
+`Profile2D()`.
+
+A profile only allocates its sum-of-squares-of-weights array on its first
+weighted fill. RDataFrame merges one partial profile per thread, and when the
+slot that acts as the merge target never received a weighted entry, that array
+is dropped. The effective entry count then degenerates from
+`(sum w)^2 / sum w^2` to `sum w`, and the error on the mean comes out too
+small by roughly `sqrt(<w>)` — which is dramatic for unnormalized `genWeight`.
+Whether it happens depends on how the entries fall across threads, so it shows
+up as errors that are silently too small on some samples and not others.
+
+Allocating the array before the event loop makes the merge lossless. Bin
+contents are unaffected, and so are unit-weight profiles, where
+`(sum w)^2 / sum w^2` already equals the entry count.
 
 ## Expression-based weights
 
