@@ -4,17 +4,38 @@ Z+jet RDF definition for the generic SkimRDFAnalysisBase/run_analysis.py driver.
 Required interface used by run_analysis.py:
     setup(args, config)
     define_columns(df, sample, args, config)
+    define_weighted_columns(df, sample, args, config, event_weight)
     get_regions(sample, args, config)
 
 The analysis-specific file only defines physics objects/columns and regions.
 Input discovery, event-loop execution, histogram booking and output writing stay
 inside the generic run_analysis.py.
+
+Booked content (see zjet_histograms.yaml):
+
+    data and MC
+        pileup observables (rho, N_PV)
+        Z / probe-jet / muon / MET kinematics
+        eta distributions in Z-pT regions
+        MET and hadronic-recoil components in probe-|eta| regions
+        probe-jet energy fractions, inclusively and in |eta| and Z-pT regions
+        hadronic-recoil resolutions sigma(u_par) and sigma(u_perp) vs pT(Z),
+            raw and corrected for the recoil scale
+        hadronic-recoil response -<u_par>/<pT(Z)> vs pT(Z)
+        the same recoil response and resolutions vs N_PV, in |eta| and
+            Z-pT regions, for the pileup dependence
+        DB / MPF response vs pT(Z), inclusively and in |eta| regions
+
+    MC only
+        jet reconstruction efficiency, purity, response and resolution with
+        respect to gen jets, matched within dR < 0.2
 """
 
 import os
 import ROOT
 
 
+# Probe-jet |eta| regions.
 ETA_CATEGORIES = {
     "Incl": (0.0, 5.0),
     "HB":   (0.0, 1.3),
@@ -23,6 +44,7 @@ ETA_CATEGORIES = {
     "HF":   (3.0, 5.0),
 }
 
+# Jet-pT regions, used for the MC efficiency/purity/response versus eta.
 PT_CATEGORIES = {
     "pt15to30":    (15.0, 30.0),
     "pt30to60":    (30.0, 60.0),
@@ -31,6 +53,63 @@ PT_CATEGORIES = {
     "pt300to1000": (300.0, 1000.0),
     "pt1000plus":  (1000.0, 1.0e9),
 }
+
+# Z-pT regions, used for the eta and energy-fraction distributions.
+ZPT_CATEGORIES = {
+    "Incl":        (0.0, 1.0e9),
+    "zpt0to20":    (0.0, 20.0),
+    "zpt20to40":   (20.0, 40.0),
+    "zpt40to80":   (40.0, 80.0),
+    "zpt80to150":  (80.0, 150.0),
+    "zpt150to300": (150.0, 300.0),
+    "zpt300plus":  (300.0, 1.0e9),
+}
+
+# PF energy fractions of the probe jet.
+ENERGY_FRACTIONS = {
+    "chHEF":  "chHEF()",
+    "neHEF":  "neHEF()",
+    "chEmEF": "chEmEF()",
+    "neEmEF": "neEmEF()",
+    "muEF":   "muEF()",
+}
+
+# Reco and gen jets enter the matching with different thresholds: the object
+# whose efficiency (or purity) is measured must be above 15 GeV, the object it
+# is matched against only above 10 GeV.
+MATCH_REFERENCE_PT = 15.0
+MATCH_CANDIDATE_PT = 10.0
+
+# Analysis muon working point. Both muons of the Z candidate satisfy it: tight
+# ID plus a dBeta-corrected pfRelIso04 below 0.15, the Muon POG tight
+# isolation point. The same TightMuons collection is counted by the region,
+# cleans the jets, and provides the Z candidate, so the working point is
+# written here once and cannot drift between those three uses.
+MUON_PT_MIN = 10.0
+MUON_ETA_MAX = 2.4
+MUON_REL_ISO_MAX = 0.15
+
+# Veto muon working point: the standard loose veto-lepton point. A muon that
+# passes this but fails the analysis working point above is an extra muon, and
+# the region requires there to be none, so the event has exactly the two
+# muons of the Z and nothing else.
+VETO_MUON_PT_MIN = 10.0
+VETO_MUON_REL_ISO_MAX = 0.25
+
+# Trigger paths accepted by the zjet region, OR-ed together. The default is
+# matched to the `Mu2_pt > 27` region cut, which puts both muons on the
+# IsoMu24 efficiency plateau.
+#
+# The same requirement is applied to data and to MC. Data come from a
+# trigger-selected primary dataset, so leaving MC untriggered makes MC
+# over-predict the data yield by the trigger inefficiency.
+#
+# Override with `triggers: [...]` in the optional analysis config.
+DEFAULT_TRIGGERS = ("HLT_IsoMu24",)
+
+# MET trigger measured in the `zjet_<MET_TRIGGER>` region, which is the zjet
+# region plus this path. It is not part of the zjet selection itself.
+MET_TRIGGER = "HLT_PFMETNoMu120_PFMHTNoMu120_IDTight"
 
 _JEC_ENABLED = False
 
@@ -168,36 +247,48 @@ def define_columns(df, sample=None, args=None, config=None):
     # Detect these BEFORE defining fallback vectors. A missing branch should
     # change the selection logic; it must not silently become an all-zero
     # vector that makes every object fail.
+    has_muon_loose_id = "Muon_looseId" in columns
     has_muon_medium_id = "Muon_mediumId" in columns
     has_muon_tight_id = "Muon_tightId" in columns
-    has_muon_pf_iso_id = "Muon_pfIsoId" in columns
     has_muon_rel_iso = "Muon_pfRelIso04_all" in columns
     has_jet_id = "Jet_jetId" in columns
 
     sample_name = (sample or {}).get("name", "<sample>")
 
-    if not has_muon_medium_id:
-        print(
-            f"[zjet:{sample_name}] Muon_mediumId not found: "
-            "baseline medium-ID requirement disabled."
-        )
+    # ID level actually requested of the two collections, given what the input
+    # schema provides. A missing branch weakens the requirement; it must never
+    # become an all-zero vector that makes every muon fail.
+    muon_id = "Tight" if has_muon_tight_id else "Any"
+
+    if has_muon_loose_id:
+        veto_muon_id = "Loose"
+    elif has_muon_medium_id:
+        veto_muon_id = "Medium"
+    else:
+        veto_muon_id = "Any"
 
     if not has_muon_tight_id:
         print(
             f"[zjet:{sample_name}] Muon_tightId not found: "
-            "tight tag-ID requirement disabled."
+            "tight muon-ID requirement disabled."
         )
 
-    if not has_muon_pf_iso_id:
-        if has_muon_rel_iso:
+    if not has_muon_rel_iso:
+        print(
+            f"[zjet:{sample_name}] Muon_pfRelIso04_all not found: "
+            "muon isolation requirement disabled."
+        )
+
+    if not has_muon_loose_id:
+        if has_muon_medium_id:
             print(
-                f"[zjet:{sample_name}] Muon_pfIsoId not found: "
-                "using pfRelIso04_all (<0.25 probe, <0.15 tag)."
+                f"[zjet:{sample_name}] Muon_looseId not found: "
+                "veto muons defined with mediumId instead."
             )
         else:
             print(
-                f"[zjet:{sample_name}] No muon isolation branch found: "
-                "muon isolation requirement disabled."
+                f"[zjet:{sample_name}] No loose or medium muon ID found: "
+                "veto muons defined by kinematics and isolation only."
             )
 
     if not has_jet_id:
@@ -207,11 +298,71 @@ def define_columns(df, sample=None, args=None, config=None):
         )
 
     # ------------------------------------------------------------------
+    # Trigger
+    # ------------------------------------------------------------------
+    requested_triggers = list(
+        config.get("triggers", DEFAULT_TRIGGERS)
+    )
+
+    available_triggers = [
+        path for path in requested_triggers
+        if path in columns
+    ]
+
+    missing_triggers = [
+        path for path in requested_triggers
+        if path not in columns
+    ]
+
+    if missing_triggers:
+        print(
+            f"[zjet:{sample_name}] Trigger path(s) not found: "
+            + ", ".join(missing_triggers)
+        )
+
+    if available_triggers:
+        print(
+            f"[zjet:{sample_name}] Trigger requirement: "
+            + " || ".join(available_triggers)
+        )
+
+        df = df.Define(
+            "passTrigger",
+            " || ".join(available_triggers)
+        )
+    else:
+        # Falling back to "always true" keeps the region definition valid on
+        # inputs without trigger branches, but it silently removes the
+        # requirement, so say so loudly rather than in passing.
+        print(
+            f"[zjet:{sample_name}] WARNING: none of the requested trigger "
+            "paths exist in this input; the trigger requirement is DISABLED. "
+            "Data and MC are no longer selected consistently."
+        )
+
+        df = df.Define("passTrigger", "true")
+
+    if MET_TRIGGER in columns:
+        df = df.Define("passMETTrigger", MET_TRIGGER)
+    else:
+        # Fail closed: an empty region is visible, whereas an always-true cut
+        # would silently report a MET-trigger efficiency of 1.
+        print(
+            f"[zjet:{sample_name}] WARNING: {MET_TRIGGER} not found; "
+            "the MET-trigger region will be empty."
+        )
+        df = df.Define("passMETTrigger", "false")
+
+    # ------------------------------------------------------------------
     # NanoAOD compatibility / optional branches
     # ------------------------------------------------------------------
     df = _ensure_vector(
         df, columns,
         "Muon_mass", "float", "nMuon", "0.105658f"
+    )
+    df = _ensure_vector(
+        df, columns,
+        "Muon_looseId", "unsigned char", "nMuon", "0"
     )
     df = _ensure_vector(
         df, columns,
@@ -267,6 +418,9 @@ def define_columns(df, sample=None, args=None, config=None):
         "Jet_genJetIdx", "int", "nJet", "-1"
     )
 
+    # ------------------------------------------------------------------
+    # Pileup observables
+    # ------------------------------------------------------------------
     df = _ensure_scalar(
         df,
         columns,
@@ -276,6 +430,27 @@ def define_columns(df, sample=None, args=None, config=None):
             "Rho_fixedGridRhoFastjetAll",
         ),
         "0.f",
+    )
+
+    df = _ensure_scalar(
+        df,
+        columns,
+        "analysis_npvs",
+        (
+            "PV_npvs",
+        ),
+        "0",
+    )
+
+    df = _ensure_scalar(
+        df,
+        columns,
+        "analysis_npvsGood",
+        (
+            "PV_npvsGood",
+            "PV_npvs",
+        ),
+        "0",
     )
 
     # ------------------------------------------------------------------
@@ -290,6 +465,7 @@ def define_columns(df, sample=None, args=None, config=None):
             Muon_phi,
             Muon_mass,
             Muon_charge,
+            Muon_looseId,
             Muon_mediumId,
             Muon_tightId,
             Muon_pfIsoId,
@@ -298,25 +474,76 @@ def define_columns(df, sample=None, args=None, config=None):
         """
     )
 
-    use_rel_iso = (
-        (not has_muon_pf_iso_id)
-        and has_muon_rel_iso
-    )
+    # A non-positive relIso bound disables the isolation cut, which is the
+    # documented way to run on a schema without an isolation branch.
+    muon_rel_iso_max = MUON_REL_ISO_MAX if has_muon_rel_iso else -1.0
+    veto_muon_rel_iso_max = VETO_MUON_REL_ISO_MAX if has_muon_rel_iso else -1.0
 
+    # The analysis muons. This one collection is counted by the region, cleans
+    # the reco and gen jets, and supplies the Z candidate.
     df = df.Define(
-        "Z",
+        "TightMuons",
         f"""
-        skimrdf::selectBestDimuon(
+        skimrdf::selectMuons(
             Muons,
-            {str(has_muon_medium_id).lower()},
-            {str(has_muon_tight_id).lower()},
-            {str(has_muon_pf_iso_id).lower()},
-            {str(use_rel_iso).lower()},
-            0.25f,
-            0.15f,
-            91.1876
+            skimrdf::MuonId::{muon_id},
+            {muon_rel_iso_max}f,
+            {MUON_PT_MIN}f,
+            {MUON_ETA_MAX}f
         )
         """
+    )
+
+    # Extra muons: loose enough to matter, but not part of the Z. The region
+    # requires this collection to be empty.
+    df = df.Define(
+        "VetoMuons",
+        f"""
+        skimrdf::selectVetoMuons(
+            Muons,
+            skimrdf::MuonId::{veto_muon_id},
+            {veto_muon_rel_iso_max}f,
+            {VETO_MUON_PT_MIN}f,
+            skimrdf::MuonId::{muon_id},
+            {muon_rel_iso_max}f,
+            {MUON_PT_MIN}f,
+            {MUON_ETA_MAX}f
+        )
+        """
+    )
+
+    df = (
+        df
+        .Define("nTightMuons", "static_cast<int>(TightMuons.size())")
+        .Define("nVetoMuons", "static_cast<int>(VetoMuons.size())")
+    )
+
+    # Opposite-sign pair closest to the Z mass. TightMuons is already at the
+    # analysis working point, so no ID or isolation requirement is repeated.
+    df = df.Define(
+        "Z",
+        "skimrdf::selectBestDimuon(TightMuons, 91.1876)"
+    )
+
+    # Leading / subleading muon of the Z candidate, ordered in pT.
+    df = (
+        df
+        .Define(
+            "ZMuLead",
+            """
+            Z.valid()
+            ? (Z.muon1().pt() >= Z.muon2().pt() ? Z.muon1() : Z.muon2())
+            : skimrdf::Muon()
+            """
+        )
+        .Define(
+            "ZMuSub",
+            """
+            Z.valid()
+            ? (Z.muon1().pt() >= Z.muon2().pt() ? Z.muon2() : Z.muon1())
+            : skimrdf::Muon()
+            """
+        )
     )
 
     # ------------------------------------------------------------------
@@ -350,7 +577,8 @@ def define_columns(df, sample=None, args=None, config=None):
         "met_prefix",
         "PuppiMET"
     )
-
+    
+    # Fallback to MET in case it doesn't find PuppiMET
     candidate_prefixes = [
         requested_met,
         "PuppiMET",
@@ -409,14 +637,42 @@ def define_columns(df, sample=None, args=None, config=None):
             "InputMET"
         )
 
-    # Clean reco jets from the Z muons and order them in pT.
+    # Collection the jets are cleaned against: every tight muon, not only the
+    # two that form the Z. The region requires nVetoMuons == 0, so any muon
+    # beyond the Z legs is itself tight, and a jet overlapping it would still
+    # be a muon jet. Any collection of objects with eta()/phi() accessors works
+    # here, so swapping in electrons, photons or a merged lepton collection
+    # only means changing this Define. The same collection also cleans the gen
+    # jets below.
+    df = df.Define(
+        "JetCleaningObjects",
+        "TightMuons"
+    )
+
+    # Clean reco jets from the tight muons and order them in pT.
     df = df.Define(
         "GoodJets",
         f"""
         skimrdf::selectJets(
             Jets,
-            Z,
-            15.f,
+            JetCleaningObjects,
+            {MATCH_REFERENCE_PT}f,
+            5.f,
+            {str(has_jet_id).lower()},
+            0.2f
+        )
+        """
+    )
+
+    # Looser copy of the same selection, used only as the match candidates for
+    # the gen jets so that the matched object may be as soft as 10 GeV.
+    df = df.Define(
+        "GoodJetsLoose",
+        f"""
+        skimrdf::selectJets(
+            Jets,
+            JetCleaningObjects,
+            {MATCH_CANDIDATE_PT}f,
             5.f,
             {str(has_jet_id).lower()},
             0.2f
@@ -435,14 +691,28 @@ def define_columns(df, sample=None, args=None, config=None):
     df = (
         df
         .Define("Z_pt", "Z.pt()")
-        .Define("Z_eta", "Z.eta()")
-        .Define("Z_phi", "Z.phi()")
+        .Define("Z_eta", "Z.valid() ? Z.eta() : -999.f")
+        .Define("Z_phi", "Z.valid() ? Z.phi() : -999.f")
         .Define("Z_mass", "Z.mass()")
+        .Define("Mu1_pt", "ZMuLead.pt()")
+        .Define("Mu1_eta", "ZMuLead.valid() ? ZMuLead.eta() : -999.f")
+        .Define("Mu1_phi", "ZMuLead.valid() ? ZMuLead.phi() : -999.f")
+        .Define("Mu2_pt", "ZMuSub.pt()")
+        .Define("Mu2_eta", "ZMuSub.valid() ? ZMuSub.eta() : -999.f")
+        .Define("Mu2_phi", "ZMuSub.valid() ? ZMuSub.phi() : -999.f")
+        .Define(
+            "dPhi_mumu",
+            """
+            Z.valid()
+            ? skimrdf::absDeltaPhi(ZMuLead.phi(), ZMuSub.phi())
+            : -1.0
+            """
+        )
         .Define("Probe_pt", "Probe.pt()")
-        .Define("Probe_eta", "Probe.eta()")
-        .Define("Probe_phi", "Probe.phi()")
-        .Define("Probe_chHEF", "Probe.chHEF()")
+        .Define("Probe_eta", "Probe.valid() ? Probe.eta() : -999.f")
+        .Define("Probe_phi", "Probe.valid() ? Probe.phi() : -999.f")
         .Define("MET_pt", "AnalysisMET.pt()")
+        .Define("MET_phi", "AnalysisMET.valid() ? AnalysisMET.phi() : -999.f")
         .Define("nGoodJets", "static_cast<int>(GoodJets.size())")
         .Define(
             "Jet2_pt",
@@ -468,15 +738,79 @@ def define_columns(df, sample=None, args=None, config=None):
             "alpha",
             "skimrdf::alpha(Z, GoodJets)"
         )
+    )
+
+    # Probe-jet PF energy fractions.
+    for fraction, accessor in ENERGY_FRACTIONS.items():
+        df = df.Define(
+            f"Probe_{fraction}",
+            f"Probe.{accessor}"
+        )
+
+    # ------------------------------------------------------------------
+    # Hadronic recoil
+    # ------------------------------------------------------------------
+    #
+    # The hadronic recoil is everything in the event that is not the Z. With
+    # the MET defined as minus the vector sum of all reconstructed objects,
+    #
+    #     u_vec = -(MET_vec + qT_vec),      qT_vec = the Z transverse momentum
+    #
+    # and it is decomposed along the Z direction qhat and along the direction
+    # transverse to it:
+    #
+    #     u_par  = u_vec . qhat            ~ -pT(Z)
+    #     u_perp = u_vec x qhat            ~ 0
+    #
+    # The MET performance observables built from this are the recoil response
+    #
+    #     R = -<u_par> / <pT(Z)>           ~ 1
+    #
+    # and the two resolutions sigma(u_par) and sigma(u_perp).
+    #
+    # Nothing here is a per-event ratio. The response is formed in the
+    # plotting step from a profile of u_par and a profile of pT(Z) over the
+    # same bins, because the per-event ratio -u_par/pT(Z) diverges as
+    # pT(Z) -> 0 and the region no longer cuts on pT(Z).
+    #
+    # The squared columns exist so that each resolution can be reconstructed
+    # from a pair of TProfiles: sigma = sqrt(<x^2> - <x>^2).
+    df = (
+        df
         .Define(
-            "zjetValid",
+            "U_x",
+            "-(AnalysisMET.px() + Z.pt() * std::cos(Z.phi()))"
+        )
+        .Define(
+            "U_y",
+            "-(AnalysisMET.py() + Z.pt() * std::sin(Z.phi()))"
+        )
+        .Define(
+            "U_par",
             """
-            Z.valid()
-            && fabs(Z.mass() - 91.1876f) < 3.743f
-            && Z.pt() > 20.f
-            && GoodJets.size() > 0
+            Z.valid() && AnalysisMET.valid()
+            ? U_x * std::cos(Z.phi()) + U_y * std::sin(Z.phi())
+            : -999.0
             """
         )
+        .Define(
+            "U_perp",
+            """
+            Z.valid() && AnalysisMET.valid()
+            ? -U_x * std::sin(Z.phi()) + U_y * std::cos(Z.phi())
+            : -999.0
+            """
+        )
+        .Define(
+            "U_pt",
+            """
+            Z.valid() && AnalysisMET.valid()
+            ? std::hypot(U_x, U_y)
+            : -999.0
+            """
+        )
+        .Define("U_par_sq", "U_par * U_par")
+        .Define("U_perp_sq", "U_perp * U_perp")
     )
 
     # ------------------------------------------------------------------
@@ -516,70 +850,55 @@ def define_columns(df, sample=None, args=None, config=None):
                 )
                 """
             )
+            # Gen jets are cleaned against the same tight muons as the reco
+            # jets, so muon jets do not enter the efficiency denominator. Using
+            # one collection for both sides keeps the numerator and denominator
+            # of the matching efficiency defined on the same footing.
             .Define(
-                "GenJets",
-                "skimrdf::selectGenJets(GenJetsAll, 15.f, 5.f)"
-            )
-            .Define(
-                "RecoMatchFlags",
-                f"""
-                skimrdf::matchRecoToGenFlags(
-                    GoodJets,
-                    GenJets,
-                    {match_dr}f
+                "GenJetsClean",
+                """
+                skimrdf::cleanByDeltaR(
+                    GenJetsAll,
+                    JetCleaningObjects,
+                    0.2f
                 )
                 """
             )
             .Define(
-                "GenMatchFlags",
-                f"""
-                skimrdf::matchGenToRecoFlags(
-                    GenJets,
-                    GoodJets,
-                    {match_dr}f
-                )
-                """
-            )
-        )
-    else:
-        # Define empty MC collections on data so the same histogram YAML can
-        # be used for data and simulation. MC-only histograms are simply empty.
-        df = (
-            df
-            .Define(
                 "GenJets",
-                "ROOT::VecOps::RVec<skimrdf::GenJet>{}"
+                f"skimrdf::selectGenJets(GenJetsClean, {MATCH_REFERENCE_PT}f, 5.f)"
+            )
+            .Define(
+                "GenJetsLoose",
+                f"skimrdf::selectGenJets(GenJetsClean, {MATCH_CANDIDATE_PT}f, 5.f)"
+            )
+            # Gen jets above 15 GeV matched to reco jets above 10 GeV, and the
+            # mirrored assignment for the purity.
+            .Define(
+                "GenMatchIdx",
+                f"skimrdf::matchIndices(GenJets, GoodJetsLoose, {match_dr}f)"
+            )
+            .Define(
+                "RecoMatchIdx",
+                f"skimrdf::matchIndices(GoodJets, GenJetsLoose, {match_dr}f)"
+            )
+            .Define(
+                "GenMatchFlags",
+                "skimrdf::matchFlags(GenMatchIdx)"
             )
             .Define(
                 "RecoMatchFlags",
-                "ROOT::VecOps::RVec<int>(GoodJets.size(), 0)"
-            )
-            .Define(
-                "GenMatchFlags",
-                "ROOT::VecOps::RVec<int>{}"
+                "skimrdf::matchFlags(RecoMatchIdx)"
             )
         )
 
-    # ------------------------------------------------------------------
-    # MC study columns
-    # ------------------------------------------------------------------
-    #
-    # Keep these truly empty on data so the same histogram YAML can be used
-    # for data and MC without producing misleading purity denominators.
-    if has_genjets:
-        # Efficiency / purity versus pT in eta categories.
+        # Efficiency / purity / response versus pT in |eta| categories.
         for category, (eta_min, eta_max) in ETA_CATEGORIES.items():
             df = (
                 df
                 .Define(
                     f"GenPt_{category}",
-                    f"""
-                    skimrdf::objectPt(
-                        GenJets,
-                        {eta_min}f,
-                        {eta_max}f
-                    )
-                    """
+                    f"skimrdf::objectPt(GenJets, {eta_min}f, {eta_max}f)"
                 )
                 .Define(
                     f"GenMatchedPt_{category}",
@@ -594,13 +913,7 @@ def define_columns(df, sample=None, args=None, config=None):
                 )
                 .Define(
                     f"RecoPt_{category}",
-                    f"""
-                    skimrdf::objectPt(
-                        GoodJets,
-                        {eta_min}f,
-                        {eta_max}f
-                    )
-                    """
+                    f"skimrdf::objectPt(GoodJets, {eta_min}f, {eta_max}f)"
                 )
                 .Define(
                     f"RecoMatchedPt_{category}",
@@ -614,40 +927,30 @@ def define_columns(df, sample=None, args=None, config=None):
                     """
                 )
                 .Define(
-                    f"RecoCompPt_{category}",
+                    f"Resp_pt_{category}",
                     f"""
-                    skimrdf::recoJetPtForComposition(
-                        GoodJets,
+                    skimrdf::matchedResponse(
+                        GenJets,
+                        GoodJetsLoose,
+                        GenMatchIdx,
                         {eta_min}f,
                         {eta_max}f
                     )
                     """
                 )
                 .Define(
-                    f"RecoChHEF_{category}",
-                    f"""
-                    skimrdf::recoJetChHEF(
-                        GoodJets,
-                        {eta_min}f,
-                        {eta_max}f
-                    )
-                    """
+                    f"RespSq_pt_{category}",
+                    f"Resp_pt_{category} * Resp_pt_{category}"
                 )
             )
 
-        # Efficiency / purity versus eta in pT categories.
+        # Efficiency / purity / response versus eta in pT categories.
         for category, (pt_min, pt_max) in PT_CATEGORIES.items():
             df = (
                 df
                 .Define(
                     f"GenEta_{category}",
-                    f"""
-                    skimrdf::objectEta(
-                        GenJets,
-                        {pt_min}f,
-                        {pt_max}f
-                    )
-                    """
+                    f"skimrdf::objectEta(GenJets, {pt_min}f, {pt_max}f)"
                 )
                 .Define(
                     f"GenMatchedEta_{category}",
@@ -662,13 +965,7 @@ def define_columns(df, sample=None, args=None, config=None):
                 )
                 .Define(
                     f"RecoEta_{category}",
-                    f"""
-                    skimrdf::objectEta(
-                        GoodJets,
-                        {pt_min}f,
-                        {pt_max}f
-                    )
-                    """
+                    f"skimrdf::objectEta(GoodJets, {pt_min}f, {pt_max}f)"
                 )
                 .Define(
                     f"RecoMatchedEta_{category}",
@@ -682,37 +979,36 @@ def define_columns(df, sample=None, args=None, config=None):
                     """
                 )
                 .Define(
-                    f"RecoCompEta_{category}",
+                    f"Resp_eta_{category}",
                     f"""
-                    skimrdf::recoJetEtaForComposition(
-                        GoodJets,
+                    skimrdf::matchedResponse(
+                        GenJets,
+                        GoodJetsLoose,
+                        GenMatchIdx,
+                        0.f,
+                        999.f,
                         {pt_min}f,
                         {pt_max}f
                     )
                     """
                 )
                 .Define(
-                    f"RecoChHEF_eta_{category}",
-                    f"""
-                    skimrdf::recoJetChHEFForEta(
-                        GoodJets,
-                        {pt_min}f,
-                        {pt_max}f
-                    )
-                    """
+                    f"RespSq_eta_{category}",
+                    f"Resp_eta_{category} * Resp_eta_{category}"
                 )
             )
 
     else:
-        # Empty float vectors for all MC-only histogram variables.
+        # Keep the MC-only columns truly empty on data, so the same histogram
+        # YAML can be used for both without filling misleading denominators.
         for category in ETA_CATEGORIES:
             for column in (
                 f"GenPt_{category}",
                 f"GenMatchedPt_{category}",
                 f"RecoPt_{category}",
                 f"RecoMatchedPt_{category}",
-                f"RecoCompPt_{category}",
-                f"RecoChHEF_{category}",
+                f"Resp_pt_{category}",
+                f"RespSq_pt_{category}",
             ):
                 df = df.Define(
                     column,
@@ -725,8 +1021,8 @@ def define_columns(df, sample=None, args=None, config=None):
                 f"GenMatchedEta_{category}",
                 f"RecoEta_{category}",
                 f"RecoMatchedEta_{category}",
-                f"RecoCompEta_{category}",
-                f"RecoChHEF_eta_{category}",
+                f"Resp_eta_{category}",
+                f"RespSq_eta_{category}",
             ):
                 df = df.Define(
                     column,
@@ -745,12 +1041,32 @@ def define_weighted_columns(df, sample=None, args=None, config=None, event_weigh
     elif event_weight != "eventWeight":
         df = df.Define("eventWeight", event_weight)
 
-    df = df.Define("signalWindowWeight", "zjetValid ? eventWeight * (skimrdf::inOppositeWindow(Z.phi(), Probe.phi()) ? 1.0 : 0.0) : 0.0")
-    df = df.Define("windowWeight", "zjetValid ? eventWeight * skimrdf::windowedBalanceWeight(Z.phi(), Probe.phi()) : 0.0")
+    # A Z+jet event only enters a category plot once both the Z and the probe
+    # jet exist. This matters for the histograms booked by --add-no-selection.
+    base = "Z.valid() && Probe.valid()"
+
     for category, (eta_min, eta_max) in ETA_CATEGORIES.items():
-        selection = f"(fabs(Probe.eta()) >= {eta_min}f && fabs(Probe.eta()) < {eta_max}f)"
-        df = df.Define(f"signalWeight_{category}", f"signalWindowWeight * ({selection} ? 1.0 : 0.0)")
-        df = df.Define(f"windowWeight_{category}", f"windowWeight * ({selection} ? 1.0 : 0.0)")
+        selection = (
+            f"{base}"
+            f" && fabs(Probe.eta()) >= {eta_min}f"
+            f" && fabs(Probe.eta()) < {eta_max}f"
+        )
+        df = df.Define(
+            f"etaWeight_{category}",
+            f"({selection}) ? eventWeight : 0.0"
+        )
+
+    for category, (pt_min, pt_max) in ZPT_CATEGORIES.items():
+        selection = (
+            f"{base}"
+            f" && Z.pt() >= {pt_min}f"
+            f" && Z.pt() < {pt_max}f"
+        )
+        df = df.Define(
+            f"zptWeight_{category}",
+            f"({selection}) ? eventWeight : 0.0"
+        )
+
     return df
 
 
@@ -758,16 +1074,49 @@ def get_regions(sample=None, args=None, config=None):
     """
     Regions are deliberately minimal.
 
-    Eta categories are encoded in profile weights / vector columns, so the
-    generic runner only needs one physical Z+jet selection.
+    The |eta| and Z-pT categories are encoded in weight columns, so the generic
+    runner only needs one physical Z+jet selection.
+
+    passTrigger is defined by define_columns from DEFAULT_TRIGGERS, or from
+    `triggers` in the analysis config, and is applied to data and MC alike.
+
+    The muon requirements are two-sided. nTightMuons >= 2 asks for the two
+    legs of the Z at the analysis working point, and nVetoMuons == 0 rejects
+    any additional muon that is merely loose, so the event is a clean dimuon
+    event rather than one with a third muon hiding under the threshold.
+    Everything the Z muons must satisfy is already in TightMuons, so the
+    region itself only adds kinematics.
+
+    The Z is selected by muon kinematics rather than by pT(Z): requiring the
+    subleading muon above 27 GeV (which implies the leading one) puts both legs
+    on the IsoMu24 plateau, and is the only thing that does so now that the
+    dimuon builder is symmetric. It also leaves the pT(Z) spectrum unsculpted,
+    so pT(Z) stays available as an observable instead of a selection variable.
     """
     return {
         "zjet": {
             "cuts": [
+                "passTrigger",
+                "nTightMuons >= 2",
+                "nVetoMuons == 0",
                 "Z.valid()",
                 "fabs(Z.mass() - 91.1876f) < 3.743f",
-                "Z.pt() > 20.f",
+                "Mu2_pt > 27.f",
                 "GoodJets.size() > 0",
+                "dPhi_ZProbe > 2.7"
+            ]
+        },
+        f"zjet_{MET_TRIGGER}": {
+            "cuts": [
+                "passTrigger",
+                "nTightMuons >= 2",
+                "nVetoMuons == 0",
+                "Z.valid()",
+                "fabs(Z.mass() - 91.1876f) < 3.743f",
+                "Mu2_pt > 27.f",
+                "GoodJets.size() > 0",
+                "dPhi_ZProbe > 2.7",
+                "passMETTrigger"
             ]
         }
     }
